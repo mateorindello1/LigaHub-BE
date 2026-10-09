@@ -7,5 +7,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    // Carga .env antes de los tests: la app se conecta a la base al iniciar y necesita DATABASE_URL.
+    setupFiles: ['dotenv/config'],
   },
 });

@@ -14,7 +14,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 | 1 | [Andamiaje del proyecto NestJS](#etapa-1--andamiaje-del-proyecto-nestjs) | Hecha |
 | 2 | [Prisma y SQL Server](#etapa-2--prisma-y-sql-server) | Hecha |
 | 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Hecha |
-| 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Pendiente |
+| 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Hecha |
 | 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Pendiente |
 | 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Pendiente |
 | 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Pendiente |
@@ -251,7 +251,7 @@ En el log aparece `PrismaModule dependencies initialized` y `Nest application su
 
 Para ver las tablas y los datos: SSMS conectado a `localhost` (base `LigaHub`), o `pnpm db:studio`.
 
-> El test end-to-end (`pnpm test:e2e`) ahora necesita la base levantada, porque la aplicación se conecta al iniciar.
+> El test end-to-end (`pnpm test:e2e`) ahora necesita la base levantada, porque la aplicación se conecta al iniciar (y, desde la etapa 4, carga `.env` con `setupFiles`).
 
 ## Etapa 3 — Estructura por capas y primer CRUD: Torneo
 
@@ -334,20 +334,113 @@ Invoke-RestMethod -Method Delete -Uri http://localhost:3000/torneos/1
 
 O con Postman o la extensión REST Client de VS Code.
 
-### Limitación conocida (se resuelve en la etapa 4)
+### Limitación (resuelta en la etapa 4)
 
-Todavía no hay validación de entrada: un `POST /torneos` con cuerpo vacío llega hasta Prisma, que falla, y la API responde **500**. Con la validación de la etapa 4 tiene que responder **400** indicando qué campo falta.
+Sin validación de entrada, un `POST /torneos` con cuerpo vacío llegaba hasta Prisma y la API respondía **500**. Desde la etapa 4 responde **400** indicando qué campo falta.
 
 ## Etapa 4 — Validación, manejo de errores y seguridad básica
 
-**Estado:** Pendiente
+**Estado:** Hecha (2026-10-09)
 
-- Validar los datos de entrada (DTOs con reglas, el equivalente a FluentValidation), con **lista blanca**: se rechazan los campos que no están en el DTO.
-- Un filtro global de excepciones que devuelva errores en un formato JSON único, como el middleware de errores de tu trabajo, sin trazas ni mensajes internos.
-- CORS restringido al origen del frontend y encabezados de seguridad con `helmet`.
-- Decoradores `@Roles(...)` y `@Publico()` en cada endpoint, para dejar documentados los permisos aunque el login todavía no exista.
+**Objetivo:** que la API valide todo lo que recibe, responda los errores siempre con el mismo formato y en castellano, y tenga las medidas de seguridad básicas definidas en [seguridad.md](seguridad.md).
 
-Detalle de las decisiones en [seguridad.md](seguridad.md).
+### Conceptos
+
+- **class-validator:** reglas de validación como decoradores en las propiedades del DTO (`@IsString()`, `@MaxLength(100)`, `@IsInt()`). Equivale a DataAnnotations, o a un validador de FluentValidation escrito en la propia clase.
+- **class-transformer:** convierte el JSON recibido (un objeto plano) en una instancia de la clase DTO, que es lo que permite aplicar los decoradores. `@Transform` modifica un valor antes de validarlo; se usa para recortar espacios, así `"   "` cuenta como vacío.
+- **Pipe:** se ejecuta antes del método del controller y puede transformar o rechazar los datos. El `ValidationPipe` global valida cada cuerpo contra su DTO, como el pipeline behavior de validación de tu trabajo.
+- **Filtro de excepciones:** atrapa cualquier excepción que salga de un controller y arma la respuesta. Equivale al middleware de manejo de errores de ASP.NET Core (`UseExceptionHandler`).
+- **`APP_PIPE` y `APP_FILTER`:** registran el pipe y el filtro como globales desde el módulo raíz, y no desde `main.ts`, para que también apliquen en los tests end-to-end. Equivale a agregar un filtro global en `AddControllers(o => o.Filters.Add(...))`.
+- **helmet:** middleware que agrega encabezados HTTP de seguridad (`X-Content-Type-Options: nosniff`, `X-Frame-Options`…) y quita `X-Powered-By`, que revelaba que la API usa Express.
+- **CORS:** el navegador solo deja que una página llame a una API de otro origen si la API lo autoriza. Se autoriza únicamente el origen del frontend, como `AddCors` con `WithOrigins`.
+
+> **Atención — orden de los decoradores:** class-validator los evalúa **de abajo hacia arriba**. Como el pipe informa solo el primer error de cada campo (`stopAtFirstError`), la regla más básica (el tipo) va **abajo** y la más específica (el largo, el rango) **arriba**. Si se invierte, un campo vacío responde "admite hasta 100 caracteres" en lugar de "es obligatorio".
+
+### Comandos
+
+```powershell
+pnpm add class-validator class-transformer helmet
+```
+
+### Formato de error de la API
+
+Todas las respuestas de error tienen la misma forma (`RespuestaError`):
+
+```json
+{
+  "estado": 400,
+  "error": "Solicitud inválida",
+  "mensaje": "Los datos enviados no son válidos.",
+  "detalles": [
+    { "campo": "nombre", "mensajes": ["El nombre es obligatorio."] },
+    { "campo": "anio", "mensajes": ["El año no puede ser anterior a 2000."] }
+  ],
+  "ruta": "/torneos",
+  "fecha": "2026-10-09T20:35:15.000Z"
+}
+```
+
+`detalles` solo aparece en los errores de validación. El frontend puede usarlo para marcar cada campo del formulario.
+
+| Origen del error | Respuesta |
+|:--|:--|
+| Validación del DTO | 400 con `detalles` por campo |
+| Campo no declarado en el DTO (lista blanca) | 400 "Este campo no está permitido." |
+| JSON mal formado | 400 "El cuerpo del pedido no es un JSON válido." |
+| `:id` no numérico (`ParseIdPipe`) | 400 "El id debe ser un número entero." |
+| Excepciones lanzadas por los servicios (`NotFoundException`, `ConflictException`) | Su código y su mensaje |
+| Ruta inexistente | 404 "La ruta solicitada no existe." |
+| Prisma P2002 (clave única) | 409 "Ya existe un registro con esos datos." |
+| Prisma P2003 (clave foránea) | 409 "La operación no es posible porque hay datos relacionados." |
+| Prisma P2025 (registro inexistente) | 404 "El registro no existe." |
+| Cualquier otro error | 500 con mensaje genérico. El detalle y la traza se registran en el log del servidor, nunca en la respuesta |
+
+### Archivos creados
+
+```
+src/common/
+├── errores/
+│   ├── excepciones.filter.ts       Filtro global: traduce cada excepción al formato RespuestaError
+│   └── respuesta-error.ts          Interfaces RespuestaError y DetalleError
+├── seguridad/
+│   ├── publico.decorator.ts        @Publico(): endpoint sin login (como [AllowAnonymous])
+│   ├── roles.decorator.ts          @Roles(...): roles permitidos (como [Authorize(Roles = ...)])
+│   └── rol.enum.ts                 Administrador = 1, Asistente = 2, Jugador = 3
+└── validacion/
+    ├── crear-pipe-validacion.ts    ValidationPipe global con lista blanca y errores por campo
+    ├── parse-id.pipe.ts            Convierte :id a número, con el mensaje en castellano
+    └── transformaciones.ts         recortarTexto, para usar con @Transform
+```
+
+`@Publico()` y `@Roles()` por ahora **solo documentan** los permisos: guardan un dato en el endpoint que nadie lee todavía. Tienen efecto cuando se agreguen los guards en la etapa 9.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/app.module.ts` | Registra el pipe de validación (`APP_PIPE`) y el filtro de excepciones (`APP_FILTER`) como globales |
+| `src/main.ts` | Agrega `helmet()` y habilita CORS solo para los orígenes de `CORS_ORIGIN`. Si la variable no está, no habilita CORS |
+| `src/modules/torneos/dto/*.ts` | Reglas de validación con mensajes en castellano. En la modificación, `ValidateIf` valida un campo solo si vino, y a diferencia de `@IsOptional` no deja pasar `null` |
+| `src/modules/torneos/torneos.controller.ts` | `@Publico()` en las consultas, `@Roles(Rol.Administrador)` en alta, modificación y baja, y `ParseIdPipe` en lugar de `ParseIntPipe` |
+| `.env.example` y `.env` | Nueva variable `CORS_ORIGIN=http://localhost:5173`, el puerto por defecto de Vite |
+| `vitest.config.e2e.ts` | `setupFiles: ['dotenv/config']`: carga `.env` antes de los tests end-to-end. Sin eso, la app no encontraba `DATABASE_URL` y el test fallaba desde la etapa 2 |
+
+### Cómo probarlo
+
+```powershell
+# Cuerpo vacío: 400 con un error por campo
+Invoke-WebRequest -Method Post -Uri http://localhost:3000/torneos -ContentType 'application/json' -Body '{}'
+
+# Campo no permitido: 400 "Este campo no está permitido."
+Invoke-WebRequest -Method Post -Uri http://localhost:3000/torneos -ContentType 'application/json' -Body '{"nombre":"Clausura","anio":2026,"estadoTorneo":3}'
+
+# Los espacios de los extremos se recortan: 201 con "Clausura"
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/torneos -ContentType 'application/json' -Body '{"nombre":"  Clausura  ","anio":2026}'
+```
+
+`Invoke-WebRequest` lanza una excepción con los 4xx; el cuerpo del error está en `$_.ErrorDetails.Message`. En Postman se ve directamente.
+
+Para CORS: un pedido con el encabezado `Origin: http://localhost:5173` recibe `Access-Control-Allow-Origin`; con cualquier otro origen, no.
 
 ## Etapa 5 — CRUD de Equipo e Inscripción de equipo
 
