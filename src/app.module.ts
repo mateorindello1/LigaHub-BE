@@ -6,9 +6,16 @@ import { ExcepcionesFilter } from './common/errores/excepciones.filter.js';
 import { crearPipeValidacion } from './common/validacion/crear-pipe-validacion.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { TorneosModule } from './modules/torneos/torneos.module.js';
+import { EquiposModule } from './modules/equipos/equipos.module.js';
+import { InscripcionesEquipoModule } from './modules/inscripciones-equipo/inscripciones-equipo.module.js';
 
 @Module({
-  imports: [PrismaModule, TorneosModule],
+  imports: [
+    PrismaModule,
+    TorneosModule,
+    EquiposModule,
+    InscripcionesEquipoModule,
+  ],
   controllers: [AppController],
   providers: [
     AppService,

@@ -259,7 +259,7 @@
         <mxCell id="t-Equipo-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;top=0;left=0;right=0;bottom=0;html=1;" vertex="1" parent="t-Equipo">
           <mxGeometry as="geometry" y="56" width="370" height="26" />
         </mxCell>
-        <mxCell id="t-Equipo-r1-k" value="" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Equipo-r1">
+        <mxCell id="t-Equipo-r1-k" value="UQ1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Equipo-r1">
           <mxGeometry as="geometry" width="100" height="26">
             <mxRectangle width="100" height="26" as="alternateBounds" />
           </mxGeometry>
@@ -277,7 +277,7 @@
             <mxRectangle width="100" height="26" as="alternateBounds" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="t-Equipo-r2-c" value="EscudoURL: varchar(500)" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;fontStyle=0;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Equipo-r2">
+        <mxCell id="t-Equipo-r2-c" value="EscudoURL: varchar(500) null" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;fontStyle=0;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Equipo-r2">
           <mxGeometry as="geometry" x="100" width="270" height="26">
             <mxRectangle width="270" height="26" as="alternateBounds" />
           </mxGeometry>

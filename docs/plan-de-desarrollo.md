@@ -15,7 +15,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 | 2 | [Prisma y SQL Server](#etapa-2--prisma-y-sql-server) | Hecha |
 | 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Hecha |
 | 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Hecha |
-| 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Pendiente |
+| 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Hecha |
 | 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Pendiente |
 | 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Pendiente |
 | 8 | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega) | Pendiente |
@@ -447,10 +447,143 @@ Para CORS: un pedido con el encabezado `Origin: http://localhost:5173` recibe `A
 
 ## Etapa 5 — CRUD de Equipo e Inscripción de equipo
 
-**Estado:** Pendiente
+**Estado:** Hecha (2026-10-09)
 
-- Equipo: segundo CRUD simple, repitiendo el patrón de Torneo.
-- Inscripción de equipo: CRUD dependiente (referencia a Equipo y a Torneo), con la validación de que un equipo no se inscriba dos veces en el mismo torneo.
+**Objetivo:** el segundo CRUD simple (Equipo) y el CRUD dependiente (Inscripción de equipo, que referencia a Torneo y a Equipo), con la primera modificación del modelo a través de una migración.
+
+### Decisiones
+
+| Tema | Decisión | Por qué |
+|:--|:--|:--|
+| `Equipo.escudoURL` | Pasa a ser opcional | Un equipo se puede crear sin escudo y cargarlo después |
+| `Equipo.nombre` | Pasa a ser único | Dos equipos con el mismo nombre se confundirían en el fixture y las posiciones |
+| Rutas de inscripción | Anidadas en el torneo: `/torneos/:torneoId/inscripciones` | La inscripción pertenece a un torneo; la ruta lo refleja |
+| Modificación de inscripción | Permite cambiar el equipo inscripto | Es lo único modificable por ahora. Cuando la inscripción tenga más datos (pago, documentación), se agregan al mismo PATCH |
+
+### Conceptos
+
+- **Modificar el modelo:** se cambia `schema.prisma` y se genera una migración nueva con solo la diferencia. Las migraciones ya aplicadas no se tocan, igual que en EF.
+- **Migraciones con advertencias:** cuando un cambio puede fallar con datos existentes (por ejemplo, una clave única nueva con valores repetidos), `prisma migrate dev` pide confirmación y **solo funciona en una terminal interactiva**. Por eso las migraciones se corren desde la terminal propia, no desde scripts automáticos.
+- **Reutilizar servicios entre módulos:** un módulo **exporta** su servicio (`exports: [TorneosService]`) y otro lo **importa** (`imports: [TorneosModule]`) para inyectarlo. Así Inscripciones valida que el torneo y el equipo existan usando sus servicios, sin consultar sus tablas. Equivale a referenciar el proyecto de otra unidad funcional e inyectar su servicio.
+- **Tipos derivados de la consulta:** el repositorio de inscripciones define los campos a devolver en una constante (`CAMPOS_INSCRIPCION`, que incluye los datos del equipo) y el tipo de la respuesta se deduce de ella con `Prisma.InscripcionEquipoGetPayload`. Si se agrega un campo a la consulta, el tipo cambia solo. Es lo que en EF sería proyectar con `Select` a un DTO, pero sin escribir la clase.
+- **`@IsOptional` frente a `ValidateIf`:** en el escudo se usa `@IsOptional` porque `null` es un valor válido ("sin escudo"); en el nombre se usa `ValidateIf` porque `null` no lo es.
+- **Validación en el servicio más clave única en la base:** el nombre de equipo y la inscripción duplicada se verifican en el servicio, para responder 409 con un mensaje claro. La clave única de la base queda como respaldo (si se cuela un duplicado, el filtro responde el 409 genérico de P2002). La comparación del nombre no distingue mayúsculas, porque usa la intercalación (*collation*) de SQL Server.
+
+### Comandos
+
+```powershell
+# Después de editar prisma/schema.prisma (escudoURL opcional y nombre único)
+pnpm db:migrate --name equipo_escudo_opcional_nombre_unico
+```
+
+Generó `prisma/migrations/20261009205922_equipo_escudo_opcional_nombre_unico/migration.sql`:
+
+```sql
+ALTER TABLE [dbo].[Equipo] ALTER COLUMN [escudoURL] VARCHAR(500) NULL;
+ALTER TABLE [dbo].[Equipo] ADD CONSTRAINT [Equipo_nombre_key] UNIQUE NONCLUSTERED ([nombre]);
+```
+
+```powershell
+pnpm exec nest g module modules/equipos
+pnpm exec nest g controller modules/equipos --no-spec
+pnpm exec nest g service modules/equipos --no-spec
+pnpm exec nest g module modules/inscripciones-equipo
+pnpm exec nest g controller modules/inscripciones-equipo --no-spec
+pnpm exec nest g service modules/inscripciones-equipo --no-spec
+```
+
+### Archivos creados
+
+```
+src/common/validacion/
+└── parse-uuid.pipe.ts                         Valida ids uniqueidentifier, con mensaje en castellano
+
+src/modules/equipos/
+├── dto/crear-equipo.dto.ts                    nombre obligatorio; escudoURL opcional (URL http/https)
+├── dto/modificar-equipo.dto.ts                Campos opcionales; "escudoURL": null quita el escudo
+├── equipos.controller.ts
+├── equipos.module.ts                          Exporta EquiposService
+├── equipos.repository.ts
+└── equipos.service.ts
+
+src/modules/inscripciones-equipo/
+├── dto/crear-inscripcion-equipo.dto.ts        equipoId (el torneo va en la ruta)
+├── dto/modificar-inscripcion-equipo.dto.ts    equipoId
+├── inscripciones-equipo.controller.ts         Rutas anidadas en /torneos/:torneoId/inscripciones
+├── inscripciones-equipo.module.ts             Importa TorneosModule y EquiposModule
+├── inscripciones-equipo.repository.ts         Devuelve cada inscripción con los datos del equipo
+└── inscripciones-equipo.service.ts
+```
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|:--|:--|
+| `prisma/schema.prisma` | `escudoURL String?` y `nombre String @unique` en Equipo |
+| `src/modules/torneos/torneos.module.ts` | Exporta `TorneosService` |
+| `src/app.module.ts` | Importa `EquiposModule` e `InscripcionesEquipoModule` (lo agregó el CLI) |
+| `docs/modelo-de-datos.drawio` y `.png` | `UQ1` en `Nombre` y `null` en `EscudoURL` de Equipo |
+
+### Endpoints
+
+**Equipos**
+
+| Método y ruta | Qué hace | Respuestas |
+|:--|:--|:--|
+| `GET /equipos` | Lista los equipos por nombre | 200 |
+| `GET /equipos/:id` | Devuelve un equipo | 200, 404 |
+| `POST /equipos` | Crea un equipo | 201, 400, 409 si el nombre ya existe |
+| `PATCH /equipos/:id` | Modifica nombre o escudo | 200, 400, 404, 409 |
+| `DELETE /equipos/:id` | Borra el equipo | 204, 404, 409 si tiene inscripciones o partidos |
+
+**Inscripciones de equipos**
+
+| Método y ruta | Qué hace | Respuestas |
+|:--|:--|:--|
+| `GET /torneos/:torneoId/inscripciones` | Lista los equipos inscriptos en el torneo | 200, 404 si el torneo no existe |
+| `GET /torneos/:torneoId/inscripciones/:id` | Devuelve una inscripción del torneo | 200, 400 si el id no es UUID, 404 |
+| `POST /torneos/:torneoId/inscripciones` | Inscribe un equipo (`{ "equipoId": 1 }`) | 201, 400, 404, 409 |
+| `PATCH /torneos/:torneoId/inscripciones/:id` | Cambia el equipo inscripto | 200, 400, 404, 409 |
+| `DELETE /torneos/:torneoId/inscripciones/:id` | Da de baja la inscripción | 204, 404, 409 |
+
+Cada inscripción se devuelve con su equipo:
+
+```json
+{
+  "id": "f7390b2d-91da-4dd8-ae3b-7fd2fd10189d",
+  "torneoId": 6,
+  "equipoId": 4,
+  "equipo": { "id": 4, "nombre": "River", "escudoURL": null }
+}
+```
+
+### Reglas de negocio
+
+**Equipo**
+- El nombre es obligatorio y no puede repetirse, sin distinguir mayúsculas (409).
+- El escudo es opcional y, si viene, tiene que ser una URL http o https.
+- No se puede borrar un equipo con inscripciones o partidos (409).
+
+**Inscripción de equipo**
+- El torneo tiene que existir (404) y estar en estado **Inscripcion** para dar de alta, modificar o borrar inscripciones (409 "Las inscripciones del torneo están cerradas").
+- El equipo tiene que existir (404).
+- Un equipo no puede inscribirse dos veces en el mismo torneo (409).
+- Pedir una inscripción a través de otro torneo responde 404: la inscripción tiene que pertenecer al torneo de la ruta.
+- No se puede borrar una inscripción que ya tiene jugadores inscriptos (409).
+- Borrar un torneo con inscripciones o un equipo inscripto sigue respondiendo 409 (reglas de las etapas 3 y 5).
+
+### Cómo probarlo
+
+Con la API levantada:
+
+```powershell
+$equipo = Invoke-RestMethod -Method Post -Uri http://localhost:3000/equipos -ContentType 'application/json' -Body '{"nombre":"River"}'
+$torneo = Invoke-RestMethod -Method Post -Uri http://localhost:3000/torneos -ContentType 'application/json' -Body '{"nombre":"Apertura","anio":2026}'
+Invoke-RestMethod -Method Post -Uri "http://localhost:3000/torneos/$($torneo.id)/inscripciones" -ContentType 'application/json' -Body "{`"equipoId`":$($equipo.id)}"
+Invoke-RestMethod "http://localhost:3000/torneos/$($torneo.id)/inscripciones"
+```
+
+Se probaron 24 casos (altas, duplicados con distintas mayúsculas, URL inválida, quitar el escudo con `null`, equipo y torneo inexistentes, UUID inválido, inscripción pedida desde otro torneo, borrados con datos asociados y torneo con inscripciones cerradas), sin errores 500.
 
 ## Etapa 6 — Listado con filtro y detalle
 

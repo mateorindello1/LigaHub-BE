@@ -82,9 +82,9 @@ model Partido {
 // #region Equipos, jugadores e inscripciones
 
 model Equipo {
-  id        Int    @id @default(autoincrement())
-  nombre    String @db.VarChar(100)
-  escudoURL String @db.VarChar(500)
+  id        Int     @id @default(autoincrement())
+  nombre    String  @unique @db.VarChar(100)
+  escudoURL String? @db.VarChar(500)
 
   inscripciones     InscripcionEquipo[]
   partidosLocal     Partido[]           @relation("PartidoLocal")
