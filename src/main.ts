@@ -1,3 +1,5 @@
+// Carga las variables de .env en process.env antes de crear la aplicación.
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 

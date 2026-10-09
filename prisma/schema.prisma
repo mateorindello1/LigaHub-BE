@@ -1,0 +1,224 @@
+// Modelo de datos de LigaHub (Prisma ORM 7 + SQL Server).
+// Fuente: docs/modelo-de-datos.drawio.
+//
+// Convenciones:
+// - Modelos en PascalCase y campos en camelCase; tablas y columnas se crean con el mismo nombre.
+// - Ids int autoincrementales o uniqueidentifier generados por Prisma (uuid v4).
+// - Estados y tipos se guardan como tinyint: SQL Server no admite enums en Prisma.
+//   Los valores están documentados en cada campo y se mapean con enums de TypeScript.
+// - Todas las relaciones usan NoAction al borrar y al actualizar. SQL Server rechaza
+//   varios caminos de cascada hacia la misma tabla (por ejemplo, Partido -> Equipo dos veces);
+//   los borrados en cascada, si hacen falta, se resuelven en el servicio.
+// - Las claves foráneas que no encabezan una clave única tienen su propio índice:
+//   SQL Server no las indexa automáticamente.
+//
+// Reglas que no puede imponer la base y valida el servicio:
+// - Un jugador no puede estar inscripto en dos equipos del mismo torneo.
+// - En PartidoJugador, la inscripción debe ser de uno de los dos equipos del partido.
+// - Un jugador tiene como máximo un usuario (ver Usuario.jugadorId).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+// La URL de conexión va en prisma.config.ts (Prisma 7).
+datasource db {
+  provider = "sqlserver"
+}
+
+// #region Torneo y fixture
+
+model Torneo {
+  id           Int    @id @default(autoincrement())
+  nombre       String @db.VarChar(100)
+  anio         Int
+  /// 1 = Inscripcion, 2 = EnCurso, 3 = Finalizado
+  estadoTorneo Int    @db.TinyInt
+
+  inscripcionesEquipo InscripcionEquipo[]
+  fechasFixture       FechaFixture[]
+}
+
+model FechaFixture {
+  id          String @id @default(uuid()) @db.UniqueIdentifier
+  torneoId    Int
+  numeroFecha Int
+
+  torneo   Torneo    @relation(fields: [torneoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partidos Partido[]
+
+  @@unique([torneoId, numeroFecha])
+}
+
+model Partido {
+  id                     String    @id @default(uuid()) @db.UniqueIdentifier
+  /// 1 = Programado, 2 = Finalizado, 3 = WO, 4 = Suspendido
+  estadoPartido          Int       @db.TinyInt
+  fechaFixtureId         String    @db.UniqueIdentifier
+  fechaHoraPartido       DateTime? @db.DateTime2
+  canchaId               Int?
+  equipoLocalId          Int
+  equipoVisitanteId      Int
+  cantidadGolesLocal     Int?
+  cantidadGolesVisitante Int?
+
+  fechaFixture     FechaFixture     @relation(fields: [fechaFixtureId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cancha           Cancha?          @relation(fields: [canchaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  equipoLocal      Equipo           @relation("PartidoLocal", fields: [equipoLocalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  equipoVisitante  Equipo           @relation("PartidoVisitante", fields: [equipoVisitanteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partidoJugadores PartidoJugador[]
+
+  @@index([fechaFixtureId])
+  @@index([canchaId])
+  @@index([equipoLocalId])
+  @@index([equipoVisitanteId])
+}
+
+// #endregion
+
+// #region Equipos, jugadores e inscripciones
+
+model Equipo {
+  id        Int    @id @default(autoincrement())
+  nombre    String @db.VarChar(100)
+  escudoURL String @db.VarChar(500)
+
+  inscripciones     InscripcionEquipo[]
+  partidosLocal     Partido[]           @relation("PartidoLocal")
+  partidosVisitante Partido[]           @relation("PartidoVisitante")
+}
+
+model Jugador {
+  id        Int    @id @default(autoincrement())
+  dni       String @unique @db.VarChar(20)
+  nombres   String @db.VarChar(100)
+  apellidos String @db.VarChar(100)
+  email     String @db.VarChar(254)
+  telefono  String @db.VarChar(20)
+  direccion String @db.VarChar(200)
+
+  inscripciones InscripcionJugador[]
+  usuarios      Usuario[]
+}
+
+model InscripcionEquipo {
+  id       String @id @default(uuid()) @db.UniqueIdentifier
+  equipoId Int
+  torneoId Int
+
+  equipo    Equipo               @relation(fields: [equipoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  torneo    Torneo               @relation(fields: [torneoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  jugadores InscripcionJugador[]
+
+  @@unique([equipoId, torneoId])
+  @@index([torneoId])
+}
+
+model InscripcionJugador {
+  id                  String  @id @default(uuid()) @db.UniqueIdentifier
+  inscripcionEquipoId String  @db.UniqueIdentifier
+  jugadorId           Int
+  dorsal              Int
+  capitan             Boolean
+
+  inscripcionEquipo InscripcionEquipo @relation(fields: [inscripcionEquipoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  jugador           Jugador           @relation(fields: [jugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partidos          PartidoJugador[]
+
+  @@unique([inscripcionEquipoId, jugadorId])
+  @@unique([inscripcionEquipoId, dorsal])
+  @@index([jugadorId])
+}
+
+// #endregion
+
+// #region Partidos jugados y eventos
+
+model PartidoJugador {
+  id                   String @id @default(uuid()) @db.UniqueIdentifier
+  partidoId            String @db.UniqueIdentifier
+  inscripcionJugadorId String @db.UniqueIdentifier
+
+  partido            Partido            @relation(fields: [partidoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inscripcionJugador InscripcionJugador @relation(fields: [inscripcionJugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  eventos            Evento[]           @relation("EventoJugador")
+  eventosCambio      Evento[]           @relation("EventoJugadorCambio")
+
+  @@unique([partidoId, inscripcionJugadorId])
+  @@index([inscripcionJugadorId])
+}
+
+model Evento {
+  id                     String  @id @default(uuid()) @db.UniqueIdentifier
+  partidoJugadorId       String  @db.UniqueIdentifier
+  /// Solo para TipoEvento = Cambio: el jugador que entra.
+  partidoJugadorCambioId String? @db.UniqueIdentifier
+  minuto                 Int
+  /// 1 = Gol, 2 = GolEnContra, 3 = Amonestacion, 4 = Expulsion, 5 = Cambio
+  tipoEvento             Int     @db.TinyInt
+
+  partidoJugador       PartidoJugador  @relation("EventoJugador", fields: [partidoJugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partidoJugadorCambio PartidoJugador? @relation("EventoJugadorCambio", fields: [partidoJugadorCambioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partidoJugadorId])
+  @@index([partidoJugadorCambioId])
+}
+
+// #endregion
+
+// #region Predios y canchas
+
+model Predio {
+  id        Int    @id @default(autoincrement())
+  nombre    String @db.VarChar(100)
+  direccion String @db.VarChar(200)
+
+  canchas Cancha[]
+}
+
+model Cancha {
+  id          Int    @id @default(autoincrement())
+  predioId    Int
+  numero      Int
+  descripcion String @db.VarChar(200)
+
+  predio   Predio    @relation(fields: [predioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partidos Partido[]
+
+  @@unique([predioId, numero])
+}
+
+// #endregion
+
+// #region Usuarios y roles
+
+model Usuario {
+  id              Int    @id @default(autoincrement())
+  email           String @unique @db.VarChar(254)
+  contraseniaHash String @db.VarChar(255)
+  fotoPerfilURL   String @db.VarChar(500)
+  /// Un jugador tiene como máximo un usuario. No se declara @unique porque en SQL Server
+  /// un índice único admite un solo NULL; se valida en el servicio.
+  jugadorId       Int?
+
+  jugador Jugador?     @relation(fields: [jugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles   UsuarioRol[]
+
+  @@index([jugadorId])
+}
+
+model UsuarioRol {
+  id        String @id @default(uuid()) @db.UniqueIdentifier
+  usuarioId Int
+  /// 1 = Administrador, 2 = Asistente, 3 = Jugador
+  rol       Int    @db.TinyInt
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([usuarioId, rol])
+}
+
+// #endregion

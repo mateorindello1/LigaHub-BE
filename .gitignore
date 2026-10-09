@@ -144,3 +144,9 @@ vite.config.ts.timestamp-*
 
 # Plantilla de variables de entorno (sí se versiona)
 !.env.example
+
+# Cliente de Prisma generado (se regenera con pnpm prisma generate)
+src/generated/
+
+# Obsidian (configuración local del visor de docs)
+.obsidian/
