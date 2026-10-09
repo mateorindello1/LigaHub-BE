@@ -8,18 +8,18 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 
 ## Índice
 
-| # | Etapa | Estado |
-|:-:|:--|:-:|
-| 0 | [Entorno: Node, fnm y pnpm](#etapa-0--entorno-node-fnm-y-pnpm) | Hecha |
-| 1 | [Andamiaje del proyecto NestJS](#etapa-1--andamiaje-del-proyecto-nestjs) | Hecha |
-| 2 | [Prisma y SQL Server](#etapa-2--prisma-y-sql-server) | Hecha |
-| 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Hecha |
-| 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Hecha |
-| 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Hecha |
-| 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Hecha |
-| 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Hecha |
-| 8 | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega) | Pendiente |
-| 9 | [Aprobación directa: login, roles, tests y ambientes](#etapa-9--aprobación-directa-login-roles-tests-y-ambientes) | Pendiente |
+|  #  | Etapa                                                                                                             |  Estado   |
+| :-: | :---------------------------------------------------------------------------------------------------------------- | :-------: |
+|  0  | [Entorno: Node, fnm y pnpm](#etapa-0--entorno-node-fnm-y-pnpm)                                                    |   Hecha   |
+|  1  | [Andamiaje del proyecto NestJS](#etapa-1--andamiaje-del-proyecto-nestjs)                                          |   Hecha   |
+|  2  | [Prisma y SQL Server](#etapa-2--prisma-y-sql-server)                                                              |   Hecha   |
+|  3  | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo)                 |   Hecha   |
+|  4  | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica)     |   Hecha   |
+|  5  | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo)                        |   Hecha   |
+|  6  | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle)                                            |   Hecha   |
+|  7  | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture)                                       |   Hecha   |
+|  8  | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega)                                          | En curso  |
+|  9  | [Aprobación directa: login, roles, tests y ambientes](#etapa-9--aprobación-directa-login-roles-tests-y-ambientes) | Pendiente |
 
 ---
 
@@ -820,11 +820,37 @@ Se probaron, sin errores 500:
 
 ## Etapa 8 — Documentación para la entrega
 
-**Estado:** Pendiente
+**Estado:** En curso (Swagger UI hecho el 2026-10-09)
 
 - `docs/README.md` como entrada, enlazado desde el README principal.
 - Modelo de datos en Mermaid.
 - Instrucciones de instalación, minutas, links a los PR.
+
+### Swagger UI (adelantado)
+
+Documentación interactiva de la API, generada a partir del código. Equivale a Swashbuckle en ASP.NET Core.
+
+- **Dónde:** `http://localhost:3000/docs` (la especificación OpenAPI en JSON queda en `/docs-json`). Solo se publica **fuera de producción** (`NODE_ENV !== 'production'`).
+- **Qué muestra:** todos los endpoints agrupados por tema (Torneos, Equipos, Inscripciones de equipos, Posiciones, Fixture), con sus parámetros y los cuerpos de los pedidos. Desde "Try it out" se puede ejecutar cada endpoint contra la API.
+- **Cómo se arma:** el **plugin del CLI** de `@nestjs/swagger` (configurado en `nest-cli.json`) lee al compilar los DTOs, incluidas las reglas de class-validator (obligatorios, `maxLength`, mínimos y máximos, formato URL), y usa el comentario JSDoc de cada método del controller como resumen del endpoint. Por eso esos comentarios describen qué hace el endpoint y no repiten la ruta.
+- **Opción mínima:** se documentan los pedidos, no las respuestas. Los endpoints devuelven tipos de Prisma o interfaces, y Swagger solo describe clases. Para la aprobación directa se pueden agregar clases de respuesta y `@ApiResponse` con los códigos posibles.
+
+```powershell
+pnpm add @nestjs/swagger
+pnpm approve-builds '!@scarf/scarf'
+```
+
+El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un paquete de telemetría que trae Swagger UI y que envía estadísticas de descarga. No hace falta para que funcione. Queda registrado como `false` en `pnpm-workspace.yaml`.
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/common/documentacion/configurar-swagger.ts` | Nuevo: título, descripción y versión de la API, y publicación en `/docs` |
+| `src/main.ts` | Llama a `configurarSwagger` cuando no es producción |
+| `nest-cli.json` | Plugin `@nestjs/swagger` con `classValidatorShim` (lee class-validator) e `introspectComments` (lee los JSDoc) |
+| Controllers | `@ApiTags(...)` para agrupar los endpoints, y comentarios JSDoc descriptivos |
+| `src/app.controller.ts` | `@ApiExcludeController()`: el "Hello World" de ejemplo no aparece en la documentación |
+| `pnpm-workspace.yaml` | `'@scarf/scarf': false` |
+
 
 ## Etapa 9 — Aprobación directa: login, roles, tests y ambientes
 

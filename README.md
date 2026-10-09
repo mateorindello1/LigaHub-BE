@@ -47,6 +47,10 @@ fnm use
 pnpm install
 ```
 
+## Documentación de la API
+
+Con la API levantada en desarrollo, la documentación interactiva (Swagger UI) está en [http://localhost:3000/docs](http://localhost:3000/docs). Desde ahí se pueden ver y probar todos los endpoints. La especificación OpenAPI en JSON está en `/docs-json`.
+
 ## Scripts
 
 | Comando | Qué hace |

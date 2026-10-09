@@ -8,6 +8,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Publico } from '../../common/seguridad/publico.decorator.js';
 import { Rol } from '../../common/seguridad/rol.enum.js';
 import { Roles } from '../../common/seguridad/roles.decorator.js';
@@ -17,11 +18,12 @@ import type { FechaFixtureVista } from './fixture-vista.js';
 import { FixtureService } from './fixture.service.js';
 
 /** Caso de uso "generar el fixture del torneo" y consulta del fixture. */
+@ApiTags('Fixture')
 @Controller('torneos/:torneoId/fixture')
 export class FixtureController {
   constructor(private readonly fixtureService: FixtureService) {}
 
-  /** GET /torneos/:torneoId/fixture: fechas con sus partidos (vacío si no se generó). */
+  /** Fechas del fixture con sus partidos y el equipo libre (lista vacía si no se generó). */
   @Publico()
   @Get()
   obtener(
@@ -30,7 +32,7 @@ export class FixtureController {
     return this.fixtureService.obtener(torneoId);
   }
 
-  /** POST /torneos/:torneoId/fixture → 201 con el fixture generado */
+  /** Genera el fixture todos contra todos y pasa el torneo a EnCurso. */
   @Roles(Rol.Administrador)
   @Post()
   generar(
@@ -40,7 +42,7 @@ export class FixtureController {
     return this.fixtureService.generar(torneoId, dto);
   }
 
-  /** DELETE /torneos/:torneoId/fixture → 204: deshace el fixture si no se jugó ningún partido */
+  /** Deshace el fixture y vuelve el torneo a Inscripcion, si no se jugó ningún partido. */
   @Roles(Rol.Administrador)
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)

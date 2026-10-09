@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Publico } from '../../common/seguridad/publico.decorator.js';
 import { Rol } from '../../common/seguridad/rol.enum.js';
 import { Roles } from '../../common/seguridad/roles.decorator.js';
@@ -19,32 +20,33 @@ import { ModificarEquipoDto } from './dto/modificar-equipo.dto.js';
 import { EquiposService } from './equipos.service.js';
 
 /** Endpoints REST de equipos. */
+@ApiTags('Equipos')
 @Controller('equipos')
 export class EquiposController {
   constructor(private readonly equiposService: EquiposService) {}
 
-  /** GET /equipos */
+  /** Lista los equipos por nombre. */
   @Publico()
   @Get()
   obtenerTodos(): Promise<Equipo[]> {
     return this.equiposService.obtenerTodos();
   }
 
-  /** GET /equipos/:id */
+  /** Devuelve un equipo. */
   @Publico()
   @Get(':id')
   obtenerPorId(@Param('id', ParseIdPipe) id: number): Promise<Equipo> {
     return this.equiposService.obtenerPorId(id);
   }
 
-  /** POST /equipos → 201 con el equipo creado */
+  /** Crea un equipo. El nombre no puede repetirse. */
   @Roles(Rol.Administrador)
   @Post()
   crear(@Body() dto: CrearEquipoDto): Promise<Equipo> {
     return this.equiposService.crear(dto);
   }
 
-  /** PATCH /equipos/:id → 200 con el equipo modificado */
+  /** Modifica el nombre o el escudo de un equipo ("escudoURL": null quita el escudo). */
   @Roles(Rol.Administrador)
   @Patch(':id')
   modificar(
@@ -54,7 +56,7 @@ export class EquiposController {
     return this.equiposService.modificar(id, dto);
   }
 
-  /** DELETE /equipos/:id → 204 sin contenido */
+  /** Borra un equipo sin inscripciones ni partidos. */
   @Roles(Rol.Administrador)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

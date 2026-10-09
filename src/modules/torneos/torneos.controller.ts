@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Publico } from '../../common/seguridad/publico.decorator.js';
 import { Rol } from '../../common/seguridad/rol.enum.js';
 import { Roles } from '../../common/seguridad/roles.decorator.js';
@@ -21,32 +22,33 @@ import { TorneosService } from './torneos.service.js';
 /**
  * Endpoints REST de torneos. Solo recibe el pedido, delega en el servicio y devuelve la respuesta.
  */
+@ApiTags('Torneos')
 @Controller('torneos')
 export class TorneosController {
   constructor(private readonly torneosService: TorneosService) {}
 
-  /** GET /torneos */
+  /** Lista los torneos, del año más reciente al más antiguo. */
   @Publico()
   @Get()
   obtenerTodos(): Promise<Torneo[]> {
     return this.torneosService.obtenerTodos();
   }
 
-  /** GET /torneos/:id */
+  /** Devuelve un torneo. */
   @Publico()
   @Get(':id')
   obtenerPorId(@Param('id', ParseIdPipe) id: number): Promise<Torneo> {
     return this.torneosService.obtenerPorId(id);
   }
 
-  /** POST /torneos → 201 con el torneo creado */
+  /** Crea un torneo en estado Inscripcion. */
   @Roles(Rol.Administrador)
   @Post()
   crear(@Body() dto: CrearTorneoDto): Promise<Torneo> {
     return this.torneosService.crear(dto);
   }
 
-  /** PATCH /torneos/:id → 200 con el torneo modificado */
+  /** Modifica el nombre o el año de un torneo. */
   @Roles(Rol.Administrador)
   @Patch(':id')
   modificar(
@@ -56,7 +58,7 @@ export class TorneosController {
     return this.torneosService.modificar(id, dto);
   }
 
-  /** DELETE /torneos/:id → 204 sin contenido */
+  /** Borra un torneo sin equipos inscriptos ni fixture. */
   @Roles(Rol.Administrador)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

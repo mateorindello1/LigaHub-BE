@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { configurarSwagger } from './common/documentacion/configurar-swagger.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -17,6 +18,11 @@ async function bootstrap() {
     .filter(Boolean);
   if (origenesPermitidos?.length) {
     app.enableCors({ origin: origenesPermitidos });
+  }
+
+  // Documentación con Swagger UI en /docs, solo fuera de producción: no expone la API en el servidor publicado.
+  if (process.env.NODE_ENV !== 'production') {
+    configurarSwagger(app);
   }
 
   await app.listen(process.env.PORT ?? 3000);
