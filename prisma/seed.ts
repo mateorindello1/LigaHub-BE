@@ -16,6 +16,7 @@
 import 'dotenv/config';
 import { PrismaMssql } from '@prisma/adapter-mssql';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { generarFixture } from '../src/modules/fixture/generar-fixture.js';
 import { EstadoPartido } from '../src/modules/partidos/estado-partido.enum.js';
 import { EstadoTorneo } from '../src/modules/torneos/estado-torneo.enum.js';
 
@@ -68,7 +69,7 @@ const DORSALES = [1, 2, 4, 5, 8, 9, 10];
 const DORSAL_CAPITAN = 10;
 
 /** Primer sábado del torneo y hora del primer partido de cada fecha. */
-const INICIO_APERTURA = new Date('2026-09-05T15:00:00-03:00');
+const INICIO_APERTURA = new Date('2026-09-19T15:00:00-03:00');
 const FECHAS_JUGADAS = 3;
 
 // #endregion
@@ -80,27 +81,6 @@ function crearAleatorio(semilla: number): () => number {
     estado = (estado * 1103515245 + 12345) % 2 ** 31;
     return estado / 2 ** 31;
   };
-}
-
-/**
- * Fixture "todos contra todos" con el método del círculo: el primer equipo queda fijo
- * y los demás rotan una posición por fecha. Con n equipos (par) salen n - 1 fechas.
- */
-function generarRoundRobin(equipos: number[]): [number, number][][] {
-  const rotacion = [...equipos];
-  const fechas: [number, number][][] = [];
-  for (let fecha = 0; fecha < equipos.length - 1; fecha++) {
-    const partidos: [number, number][] = [];
-    for (let i = 0; i < equipos.length / 2; i++) {
-      const a = rotacion[i];
-      const b = rotacion[equipos.length - 1 - i];
-      // Alterna la localía entre fechas para que no siempre sea local el mismo.
-      partidos.push(fecha % 2 === 0 ? [a, b] : [b, a]);
-    }
-    fechas.push(partidos);
-    rotacion.splice(1, 0, rotacion.pop()!);
-  }
-  return fechas;
 }
 
 async function main(): Promise<void> {
@@ -214,8 +194,13 @@ async function main(): Promise<void> {
       }
     }
 
-    const fixture = generarRoundRobin(
+    // Mismo algoritmo que usa el caso de uso de la API (sin mezclar, para que el seed sea repetible).
+    const fixture = generarFixture(
       equiposApertura.map((equipo) => equipo.id),
+    ).map((fechaGenerada) =>
+      fechaGenerada.partidos.map(
+        (partido) => [partido.localId, partido.visitanteId] as const,
+      ),
     );
     for (const [indiceFecha, partidosDeLaFecha] of fixture.entries()) {
       const numeroFecha = indiceFecha + 1;

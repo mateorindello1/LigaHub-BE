@@ -17,7 +17,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 | 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Hecha |
 | 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Hecha |
 | 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Hecha |
-| 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Pendiente |
+| 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Hecha |
 | 8 | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega) | Pendiente |
 | 9 | [Aprobación directa: login, roles, tests y ambientes](#etapa-9--aprobación-directa-login-roles-tests-y-ambientes) | Pendiente |
 
@@ -628,7 +628,7 @@ pnpm test                     # corre los tests unitarios
 |:--|:--|
 | Predio | "Complejo Parque Norte", con canchas 1 y 2 |
 | Equipos | 8 equipos ficticios (ids 1 a 8) |
-| Torneo 1: Apertura 2026 | En curso. Equipos 1 a 6, con 7 jugadores cada uno (el dorsal 10 es capitán). Fixture de 5 fechas, todos contra todos: fechas 1 a 3 jugadas (con un WO y un partido suspendido en la fecha 3), fechas 4 y 5 programadas |
+| Torneo 1: Apertura 2026 | En curso. Equipos 1 a 6, con 7 jugadores cada uno (el dorsal 10 es capitán). Fixture de 5 fechas, todos contra todos, una por sábado desde el 19/09: fechas 1 a 3 jugadas (con un WO y un partido suspendido en la fecha 3), fechas 4 y 5 programadas. Desde la etapa 7 el fixture se arma con el mismo algoritmo del caso de uso |
 | Torneo 2: Clausura 2026 | Inscripción abierta. Equipos 5 a 8 inscriptos, sin fixture ni jugadores |
 
 Los ids vuelven a empezar en 1 en cada ejecución (`DBCC CHECKIDENT ... RESEED`), así los ejemplos de esta documentación siempre funcionan. Los goles se generan con una semilla fija: salen iguales cada vez.
@@ -708,10 +708,115 @@ Se verificó la tabla del Apertura contra el mismo cálculo hecho en SQL directa
 
 ## Etapa 7 — Caso de uso: generar el fixture
 
-**Estado:** Pendiente
+**Estado:** Hecha (2026-10-09)
 
-- A partir de los equipos inscriptos, generar las fechas y los partidos del torneo.
-- Validar el estado del torneo y que no se genere dos veces.
+**Objetivo:** el caso de uso con valor de negocio de la regularidad: a partir de los equipos inscriptos en un torneo, generar todas las fechas y partidos "todos contra todos" y cerrar las inscripciones. Usa la información de los CRUD anteriores (torneos, equipos e inscripciones), como pide la cátedra.
+
+### Diseño
+
+| Endpoint | Qué hace | Respuestas |
+|:--|:--|:--|
+| `POST /torneos/:torneoId/fixture` | Genera el fixture, lo guarda y pasa el torneo a **EnCurso** | 201 con las fechas, 400, 404, 409 |
+| `GET /torneos/:torneoId/fixture` | Devuelve las fechas con sus partidos y el equipo libre de cada una | 200 (lista vacía si no se generó), 404 |
+| `DELETE /torneos/:torneoId/fixture` | Deshace el fixture y vuelve el torneo a **Inscripcion** | 204, 404 si no tiene fixture, 409 si ya hay actividad |
+
+Cuerpo del `POST`, todo opcional (con `{}` o sin cuerpo genera una rueda sin días asignados):
+
+```json
+{ "idaYVuelta": true, "fechaInicio": "2026-11-07T15:00:00-03:00" }
+```
+
+Con `fechaInicio`, cada fecha se programa una semana después de la anterior. Las canchas no se asignan en este paso.
+
+### Reglas de negocio
+
+- El torneo tiene que existir y estar en estado **Inscripcion** (409 si el fixture ya fue generado).
+- Tiene que haber **al menos dos equipos inscriptos** (409 indicando cuántos hay).
+- Al generarse, el torneo pasa a **EnCurso**: desde ese momento las inscripciones quedan cerradas y el torneo no se puede borrar (reglas de las etapas 3 y 5).
+- El orden de los equipos se **mezcla** antes de generar, para que los cruces de cada fecha no dependan del orden de inscripción.
+- El fixture solo se puede **deshacer** si ningún partido se jugó, se suspendió o tiene jugadores cargados.
+
+### Algoritmo: método del círculo
+
+Está en `generar-fixture.ts`, como función pura con tests.
+
+1. Si la cantidad de equipos es impar, se agrega un "libre": a quien le toca enfrentarlo, no juega esa fecha.
+2. Se ubican los equipos en una rueda. En cada fecha se emparejan el primero con el último, el segundo con el anteúltimo, y así.
+3. El primer equipo queda fijo y el resto rota una posición para la fecha siguiente.
+4. Con n equipos (par) salen **n − 1 fechas** de n/2 partidos, y cada equipo enfrenta a todos los demás **exactamente una vez**. Con n impar salen n fechas, con un libre distinto en cada una.
+5. La localía se alterna: cada equipo es local en la mitad de sus partidos, con una diferencia máxima de uno.
+6. Con ida y vuelta se repiten las fechas en el mismo orden, con la localía invertida.
+
+Ejemplo con 4 equipos (A, B, C, D), en la rueda `A B C D`:
+
+| Fecha | Rueda | Cruces | Con localía (local–visitante) |
+|:-:|:--|:--|:--|
+| 1 | A B C D | A con D, B con C | A–D, C–B |
+| 2 | A D B C | A con C, D con B | C–A, B–D |
+| 3 | A C D B | A con B, C con D | A–B, D–C |
+
+La localía de la primera pareja (la del equipo fijo) se invierte en las fechas pares; la de las demás parejas, según su posición en la rueda. Así cada equipo queda local en 1 o 2 de sus 3 partidos.
+
+### Conceptos
+
+- **Caso de uso:** una operación de negocio que combina varias entidades y reglas, no un CRUD. Equivale a un command con su handler en tu trabajo (`GenerarFixtureCommand`).
+- **Transacción interactiva** (`prisma.$transaction(async (tx) => { ... })`): las fechas, los partidos y el cambio de estado del torneo se guardan juntos. Si algo falla, se deshace todo y no queda un fixture a medias. Dentro de la transacción se usa `tx` en lugar de `this.prisma`. Equivale al unit of work con commit o rollback por request de tu trabajo, o a `BeginTransaction`/`Commit` en EF.
+- **`createMany`:** inserta muchas filas en una sola operación, como `AddRange` + `SaveChanges`. Para relacionar los partidos con sus fechas sin consultar la base, los ids de las fechas se generan en el código con `randomUUID()`.
+- **Pedidos simultáneos:** si llegaran dos `POST` a la vez, los dos podrían pasar las validaciones. La clave única (`torneoId`, `numeroFecha`) impide guardar dos fixtures: el segundo falla con P2002 y responde 409.
+- **Fechas en UTC:** SQL Server guarda `datetime2` sin zona horaria, y la API trabaja en UTC. `2026-11-07T15:00:00-03:00` se guarda como 18:00 UTC y se devuelve como `"2026-11-07T18:00:00.000Z"`. **El frontend tiene que mostrarla en hora local.**
+- **`it.each`:** corre el mismo test con distintos datos, como `[Theory]` con `[InlineData]` en xUnit.
+
+### Archivos creados
+
+```
+src/modules/fixture/
+├── dto/generar-fixture.dto.ts     idaYVuelta (booleano) y fechaInicio (ISO 8601), opcionales
+├── fixture-vista.ts               Tipos de la respuesta: fechas, partidos y equipo libre
+├── fixture.controller.ts          GET, POST y DELETE /torneos/:torneoId/fixture
+├── fixture.module.ts              Importa TorneosModule
+├── fixture.repository.ts          Consultas y la transacción que guarda o borra el fixture
+├── fixture.service.ts             Reglas del caso de uso, mezcla de equipos y armado de la respuesta
+├── generar-fixture.ts             Algoritmo del círculo (función pura)
+└── generar-fixture.spec.ts        11 tests del algoritmo
+```
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/app.module.ts` | Importa `FixtureModule` |
+| `prisma/seed.ts` | Usa `generarFixture` en lugar de su propia copia del algoritmo, y el Apertura empieza el 19/09 para que las fechas programadas queden en el futuro |
+
+### Cómo probarlo
+
+Con el seed cargado, el torneo 2 (Clausura) tiene 4 equipos inscriptos y no tiene fixture:
+
+```powershell
+pnpm db:seed
+pnpm start:dev
+```
+
+```powershell
+# Generar con ida y vuelta, empezando el 7 de noviembre
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/torneos/2/fixture -ContentType 'application/json' -Body '{"idaYVuelta":true,"fechaInicio":"2026-11-07T15:00:00-03:00"}'
+
+# Ver el fixture y el estado del torneo (estadoTorneo pasa a 2)
+Invoke-RestMethod http://localhost:3000/torneos/2/fixture
+Invoke-RestMethod http://localhost:3000/torneos/2
+
+# Deshacerlo (vuelve a estadoTorneo 1)
+Invoke-RestMethod -Method Delete -Uri http://localhost:3000/torneos/2/fixture
+```
+
+Se probaron, sin errores 500:
+- Generar con ida y vuelta y con fecha de inicio (6 fechas semanales).
+- Generar con cantidad impar (3 equipos: un libre distinto por fecha).
+- Generar sin cuerpo.
+- Generar dos veces (409).
+- Inscribir o borrar el torneo con el fixture generado (409).
+- Un solo equipo inscripto (409).
+- Cuerpo inválido (400).
+- Deshacer, deshacer sin fixture (404) y deshacer con partidos jugados (409).
 
 ## Etapa 8 — Documentación para la entrega
 
