@@ -13,7 +13,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 | 0 | [Entorno: Node, fnm y pnpm](#etapa-0--entorno-node-fnm-y-pnpm) | Hecha |
 | 1 | [Andamiaje del proyecto NestJS](#etapa-1--andamiaje-del-proyecto-nestjs) | Hecha |
 | 2 | [Prisma y SQL Server](#etapa-2--prisma-y-sql-server) | Hecha |
-| 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Pendiente |
+| 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Hecha |
 | 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Pendiente |
 | 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Pendiente |
 | 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Pendiente |
@@ -255,11 +255,88 @@ Para ver las tablas y los datos: SSMS conectado a `localhost` (base `LigaHub`), 
 
 ## Etapa 3 — Estructura por capas y primer CRUD: Torneo
 
-**Estado:** Pendiente
+**Estado:** Hecha (2026-10-09)
 
-- Definir la estructura de carpetas por feature (`src/modules/torneos/`).
-- Controller → servicio (casos de uso y reglas de negocio) → repositorio (acceso con Prisma).
-- Endpoints REST: `GET /torneos`, `GET /torneos/:id`, `POST /torneos`, `PATCH /torneos/:id`, `DELETE /torneos/:id`.
+**Objetivo:** fijar la estructura que se repite en cada CRUD, con Torneo como primer caso completo, de punta a punta contra la base.
+
+### Conceptos
+
+- **Arquitectura por capas** (requisito de la cátedra): cada pedido pasa por tres capas con responsabilidades separadas.
+
+  | Capa | Archivo | Responsabilidad | En tu trabajo |
+  |:--|:--|:--|:--|
+  | Controller | `torneos.controller.ts` | Recibe el pedido HTTP, convierte los parámetros y delega. Sin lógica | Controller fino con `Mediator.Send` |
+  | Servicio | `torneos.service.ts` | Casos de uso y reglas de negocio (estado inicial, no borrar con inscriptos, 404 si no existe) | Handlers + reglas de la entidad |
+  | Repositorio | `torneos.repository.ts` | Acceso a datos con Prisma. Es la única capa que conoce Prisma | Repositorio específico sobre EF |
+
+- **Módulo de Nest** (`torneos.module.ts`): agrupa el controller y los providers (servicio y repositorio) de una feature y los registra en el contenedor de inyección. Equivale a un método de extensión `AddTorneos(this IServiceCollection services)`. La carpeta `src/modules/torneos/` es la "unidad funcional", como tu carpeta `Unidades Funcionales/<Feature>/`.
+- **Inyección de dependencias por constructor:** `constructor(private readonly torneosRepository: TorneosRepository)` declara la dependencia y Nest la resuelve sola, como en ASP.NET Core. `private readonly` en el parámetro crea y asigna el campo en una sola línea.
+- **DTOs** (`dto/`): clases que describen el cuerpo de cada pedido. El cliente no puede mandar el `id` ni el estado: el estado inicial lo decide el servicio.
+- **Enum de estado** (`estado-torneo.enum.ts`): la base guarda un `tinyint`; en el código se usa `EstadoTorneo.Inscripcion` en lugar del número 1. Equivale a un `enum` de C# guardado como `byte`.
+- **Pipes de Nest:** `ParseIntPipe` convierte el `:id` de la URL a número y responde 400 si no lo es. Equivale al model binding con restricción de ruta `{id:int}`.
+- **Excepciones HTTP:** `NotFoundException` (404) y `ConflictException` (409) se lanzan desde el servicio y Nest las convierte en la respuesta. Equivale a devolver `NotFound()`/`Conflict()`, o a tus excepciones tipadas capturadas por el middleware de errores.
+- **Promesas y `async`/`await`:** funcionan igual que `Task` y `async`/`await` en C#. `Promise.all` equivale a `Task.WhenAll`.
+
+### Comandos
+
+```powershell
+pnpm exec nest g module modules/torneos
+pnpm exec nest g controller modules/torneos --no-spec
+pnpm exec nest g service modules/torneos --no-spec
+```
+
+Generan el módulo, el controller y el servicio vacíos, registran el módulo en `app.module.ts` y el controller y el servicio en `torneos.module.ts`. `--no-spec` evita crear archivos de test vacíos (los tests se agregan en la etapa 9). El repositorio, los DTOs y el enum se crearon a mano.
+
+### Archivos creados
+
+```
+src/modules/torneos/
+├── dto/
+│   ├── crear-torneo.dto.ts       Cuerpo de POST: nombre y anio
+│   └── modificar-torneo.dto.ts   Cuerpo de PATCH: nombre y anio opcionales
+├── estado-torneo.enum.ts         Inscripcion = 1, EnCurso = 2, Finalizado = 3
+├── torneos.controller.ts         Los cinco endpoints
+├── torneos.module.ts             Registra controller, servicio y repositorio
+├── torneos.repository.ts         Consultas con Prisma
+└── torneos.service.ts            Casos de uso y reglas de negocio
+```
+
+`src/app.module.ts` ahora importa `TorneosModule` (lo agregó el CLI).
+
+### Endpoints
+
+| Método y ruta | Qué hace | Respuestas |
+|:--|:--|:--|
+| `GET /torneos` | Lista los torneos, del año más reciente al más antiguo | 200 |
+| `GET /torneos/:id` | Devuelve un torneo | 200, 404 si no existe, 400 si el id no es número |
+| `POST /torneos` | Crea un torneo en estado Inscripcion | 201 con el torneo creado |
+| `PATCH /torneos/:id` | Modifica nombre o año (solo lo que se envía) | 200, 404 |
+| `DELETE /torneos/:id` | Borra el torneo | 204, 404, 409 si tiene equipos inscriptos o fixture |
+
+Se usa `PATCH` y no `PUT` porque se modifican solo los campos enviados. El estado del torneo no se modifica por estos endpoints: va a cambiar con los casos de uso (por ejemplo, al generar el fixture pasa a EnCurso).
+
+### Reglas de negocio implementadas
+
+- Todo torneo nuevo empieza en estado **Inscripcion**.
+- Modificar o borrar un torneo inexistente responde **404**, verificado en el servicio antes de llamar a la base (si no, Prisma lanzaría un error genérico).
+- No se puede borrar un torneo con **equipos inscriptos o fechas de fixture** (409).
+
+### Cómo probarlo
+
+Con la API levantada (`pnpm start:dev`), desde PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/torneos -ContentType 'application/json' -Body '{"nombre":"Apertura","anio":2026}'
+Invoke-RestMethod http://localhost:3000/torneos
+Invoke-RestMethod -Method Patch -Uri http://localhost:3000/torneos/1 -ContentType 'application/json' -Body '{"nombre":"Apertura 2026"}'
+Invoke-RestMethod -Method Delete -Uri http://localhost:3000/torneos/1
+```
+
+O con Postman o la extensión REST Client de VS Code.
+
+### Limitación conocida (se resuelve en la etapa 4)
+
+Todavía no hay validación de entrada: un `POST /torneos` con cuerpo vacío llega hasta Prisma, que falla, y la API responde **500**. Con la validación de la etapa 4 tiene que responder **400** indicando qué campo falta.
 
 ## Etapa 4 — Validación, manejo de errores y seguridad básica
 
