@@ -211,17 +211,18 @@ pnpm exec prisma generate
 
 - **`src/main.ts`:** `import 'dotenv/config'` al principio, para cargar `.env` antes de crear la aplicación.
 - **`src/app.module.ts`:** importa `PrismaModule`.
-- **`package.json`:** scripts nuevos:
-
-  | Script | Qué hace | En .NET |
-  |:--|:--|:--|
-  | `postinstall` | `prisma generate` después de `pnpm install` | — |
-  | `prebuild` | `prisma generate` antes de `pnpm build` | — |
-  | `pnpm db:migrate` | `prisma migrate dev`: compara el schema con la base, genera la migración y la aplica | `Add-Migration` + `Update-Database` |
-  | `pnpm db:deploy` | `prisma migrate deploy`: aplica las migraciones pendientes, sin generar nuevas (para Azure) | `Update-Database` en producción |
-  | `pnpm db:studio` | Abre Prisma Studio, un visor web de los datos | Explorador de SSMS |
-
+- **`package.json`:** scripts nuevos (ver la tabla de abajo).
 - **`.gitignore`:** se agregó `src/generated/`.
+
+Scripts nuevos de `package.json`:
+
+| Script | Qué hace | En .NET |
+|:--|:--|:--|
+| `postinstall` | `prisma generate` después de `pnpm install` | — |
+| `prebuild` | `prisma generate` antes de `pnpm build` | — |
+| `pnpm db:migrate` | `prisma migrate dev`: compara el schema con la base, genera la migración y la aplica | `Add-Migration` + `Update-Database` |
+| `pnpm db:deploy` | `prisma migrate deploy`: aplica las migraciones pendientes, sin generar nuevas (para Azure) | `Update-Database` en producción |
+| `pnpm db:studio` | Abre Prisma Studio, un visor web de los datos | Explorador de SSMS |
 
 ### Primera migración
 
@@ -261,13 +262,15 @@ Para ver las tablas y los datos: SSMS conectado a `localhost` (base `LigaHub`), 
 
 ### Conceptos
 
-- **Arquitectura por capas** (requisito de la cátedra): cada pedido pasa por tres capas con responsabilidades separadas.
+**Arquitectura por capas** (requisito de la cátedra): cada pedido pasa por tres capas con responsabilidades separadas.
 
-  | Capa | Archivo | Responsabilidad | En tu trabajo |
-  |:--|:--|:--|:--|
-  | Controller | `torneos.controller.ts` | Recibe el pedido HTTP, convierte los parámetros y delega. Sin lógica | Controller fino con `Mediator.Send` |
-  | Servicio | `torneos.service.ts` | Casos de uso y reglas de negocio (estado inicial, no borrar con inscriptos, 404 si no existe) | Handlers + reglas de la entidad |
-  | Repositorio | `torneos.repository.ts` | Acceso a datos con Prisma. Es la única capa que conoce Prisma | Repositorio específico sobre EF |
+| Capa | Archivo | Responsabilidad | En tu trabajo |
+|:--|:--|:--|:--|
+| Controller | `torneos.controller.ts` | Recibe el pedido HTTP, convierte los parámetros y delega. Sin lógica | Controller fino con `Mediator.Send` |
+| Servicio | `torneos.service.ts` | Casos de uso y reglas de negocio (estado inicial, no borrar con inscriptos, 404 si no existe) | Handlers + reglas de la entidad |
+| Repositorio | `torneos.repository.ts` | Acceso a datos con Prisma. Es la única capa que conoce Prisma | Repositorio específico sobre EF |
+
+Otros conceptos:
 
 - **Módulo de Nest** (`torneos.module.ts`): agrupa el controller y los providers (servicio y repositorio) de una feature y los registra en el contenedor de inyección. Equivale a un método de extensión `AddTorneos(this IServiceCollection services)`. La carpeta `src/modules/torneos/` es la "unidad funcional", como tu carpeta `Unidades Funcionales/<Feature>/`.
 - **Inyección de dependencias por constructor:** `constructor(private readonly torneosRepository: TorneosRepository)` declara la dependencia y Nest la resuelve sola, como en ASP.NET Core. `private readonly` en el parámetro crea y asigna el campo en una sola línea.
