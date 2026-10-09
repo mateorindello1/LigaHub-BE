@@ -59,3 +59,7 @@ pnpm install
 | `pnpm test:cov` | Tests con cobertura |
 | `pnpm lint` | Linter |
 | `pnpm format` | Formatea el código con Prettier |
+| `pnpm db:migrate` | Genera y aplica una migración a partir de los cambios en `prisma/schema.prisma` (desarrollo) |
+| `pnpm db:deploy` | Aplica las migraciones pendientes, sin generar nuevas (producción) |
+| `pnpm db:seed` | **Borra todos los datos** y carga los datos de demostración |
+| `pnpm db:studio` | Abre Prisma Studio para ver y editar los datos |

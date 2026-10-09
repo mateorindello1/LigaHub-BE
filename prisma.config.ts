@@ -7,6 +7,8 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    // Comando de pnpm db:seed (prisma db seed). tsx ejecuta TypeScript sin compilar antes.
+    seed: 'tsx prisma/seed.ts',
   },
   datasource: {
     url: env('DATABASE_URL'),

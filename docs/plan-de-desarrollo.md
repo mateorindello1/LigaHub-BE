@@ -16,7 +16,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 | 3 | [Estructura por capas y primer CRUD: Torneo](#etapa-3--estructura-por-capas-y-primer-crud-torneo) | Hecha |
 | 4 | [Validación, manejo de errores y seguridad básica](#etapa-4--validación-manejo-de-errores-y-seguridad-básica) | Hecha |
 | 5 | [CRUD de Equipo e Inscripción de equipo](#etapa-5--crud-de-equipo-e-inscripción-de-equipo) | Hecha |
-| 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Pendiente |
+| 6 | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle) | Hecha |
 | 7 | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture) | Pendiente |
 | 8 | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega) | Pendiente |
 | 9 | [Aprobación directa: login, roles, tests y ambientes](#etapa-9--aprobación-directa-login-roles-tests-y-ambientes) | Pendiente |
@@ -587,10 +587,124 @@ Se probaron 24 casos (altas, duplicados con distintas mayúsculas, URL inválida
 
 ## Etapa 6 — Listado con filtro y detalle
 
-**Estado:** Pendiente
+**Estado:** Hecha (2026-10-09)
 
-- Tabla de posiciones filtrada por torneo, ordenada por puntos.
-- Detalle del equipo con datos de al menos dos clases de negocio (equipo, jugadores e inscripción).
+**Objetivo:** cumplir el requisito "listado con filtro + detalle" de la cátedra: un listado filtrado por al menos un atributo y, al seleccionar un elemento, un pedido al backend que devuelve más información, con datos de al menos dos clases de negocio.
+
+### Diseño
+
+| Requisito | Implementación |
+|:--|:--|
+| Listado | Tabla de posiciones de un torneo |
+| Filtro | El torneo: `GET /torneos/:torneoId/posiciones`. En el frontend, un selector de torneo |
+| Detalle | `GET /torneos/:torneoId/equipos/:equipoId`: el equipo en ese torneo, con su línea de la tabla, sus partidos y sus jugadores |
+| Clases de negocio del detalle | Torneo, Equipo, InscripcionEquipo, Partido, FechaFixture, Cancha, Predio, InscripcionJugador y Jugador |
+
+### Conceptos
+
+- **La tabla no se guarda, se calcula.** Sale de los partidos con resultado (estado Finalizado o WO). Guardarla en una tabla obligaría a mantenerla sincronizada cada vez que cambia un resultado.
+- **Función pura para el cálculo** (`calcular-posiciones.ts`): recibe los equipos y los partidos y devuelve la tabla, sin acceder a la base. Se prueba con tests unitarios sin levantar nada. Es el equivalente a tener la regla en el dominio y no en el handler.
+- **Reglas de la tabla:** victoria 3 puntos, empate 1. Orden: puntos, diferencia de gol, goles a favor y nombre. Aparecen todos los equipos inscriptos, aunque no hayan jugado.
+- **Consultas en paralelo:** `Promise.all` lanza las consultas independientes a la vez, como `Task.WhenAll`.
+- **Clave única compuesta en Prisma:** `findUnique({ where: { equipoId_torneoId: { equipoId, torneoId } } })` busca por la clave única (`equipoId`, `torneoId`). Prisma genera ese nombre uniendo los campos con `_`.
+- **Seed:** script que carga datos iniciales, como `HasData` o un `DbInitializer` en EF. Se configura en `prisma.config.ts` (`migrations.seed`) y se corre con `pnpm db:seed`.
+- **tsx:** ejecuta archivos TypeScript directamente, sin compilarlos antes. Se usa para el seed, que no es parte de la aplicación de Nest.
+- **Tests unitarios con Vitest:** `describe` agrupa los casos e `it` define cada uno; `expect(...).toEqual(...)` es el `Assert.Equal` de xUnit. Se mantiene el formato Arrange/Act/Assert.
+
+### Comandos
+
+```powershell
+pnpm add -D tsx
+pnpm approve-builds esbuild   # tsx usa esbuild; pnpm 11 pide aprobar su script de instalación
+pnpm db:seed                  # carga los datos de demostración
+pnpm test                     # corre los tests unitarios
+```
+
+> **`pnpm db:seed` borra todos los datos de la base** y carga siempre el mismo conjunto. No se ejecuta si `NODE_ENV=production`.
+
+### Datos del seed
+
+| Dato | Contenido |
+|:--|:--|
+| Predio | "Complejo Parque Norte", con canchas 1 y 2 |
+| Equipos | 8 equipos ficticios (ids 1 a 8) |
+| Torneo 1: Apertura 2026 | En curso. Equipos 1 a 6, con 7 jugadores cada uno (el dorsal 10 es capitán). Fixture de 5 fechas, todos contra todos: fechas 1 a 3 jugadas (con un WO y un partido suspendido en la fecha 3), fechas 4 y 5 programadas |
+| Torneo 2: Clausura 2026 | Inscripción abierta. Equipos 5 a 8 inscriptos, sin fixture ni jugadores |
+
+Los ids vuelven a empezar en 1 en cada ejecución (`DBCC CHECKIDENT ... RESEED`), así los ejemplos de esta documentación siempre funcionan. Los goles se generan con una semilla fija: salen iguales cada vez.
+
+### Archivos creados
+
+```
+src/modules/partidos/
+└── estado-partido.enum.ts          Programado, Finalizado, WO, Suspendido; estados que cuentan para la tabla
+
+src/modules/posiciones/
+├── calcular-posiciones.ts          Función pura que arma la tabla
+├── calcular-posiciones.spec.ts     6 tests unitarios del cálculo
+├── detalle-equipo.ts               Tipos de la respuesta del detalle
+├── posiciones.controller.ts        GET /torneos/:torneoId/posiciones y /equipos/:equipoId
+├── posiciones.module.ts            Importa TorneosModule
+├── posiciones.repository.ts        Consultas de equipos, partidos e inscripción con jugadores
+└── posiciones.service.ts           Arma la tabla y el detalle
+
+prisma/
+└── seed.ts                         Datos de demostración
+```
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|:--|:--|
+| `prisma.config.ts` | `migrations.seed: 'tsx prisma/seed.ts'` |
+| `package.json` | Script `db:seed` y dependencia de desarrollo `tsx` |
+| `pnpm-workspace.yaml` | `esbuild` autorizado a ejecutar su script de instalación |
+| `src/app.module.ts` | Importa `PosicionesModule` |
+| `README.md` | Scripts de base de datos en la tabla de scripts |
+
+### Endpoints
+
+| Método y ruta | Qué devuelve | Respuestas |
+|:--|:--|:--|
+| `GET /torneos/:torneoId/posiciones` | La tabla del torneo: posición, equipo, PJ, G, E, P, GF, GC, DG y puntos | 200, 404 si el torneo no existe |
+| `GET /torneos/:torneoId/equipos/:equipoId` | El detalle del equipo en el torneo | 200, 404 si el torneo no existe o el equipo no está inscripto |
+
+Ejemplo de detalle (resumido):
+
+```json
+{
+  "torneo": { "id": 1, "nombre": "Apertura", "anio": 2026, "estadoTorneo": 2 },
+  "equipo": { "id": 1, "nombre": "Los Halcones", "escudoURL": null },
+  "inscripcionId": "…",
+  "posicion": { "posicion": 6, "partidosJugados": 3, "ganados": 0, "puntos": 0, "…": "…" },
+  "partidos": [
+    {
+      "numeroFecha": 1, "condicion": "Local", "rival": { "id": 6, "nombre": "Estrella Roja" },
+      "golesAFavor": 0, "golesEnContra": 1, "resultado": "Perdido",
+      "cancha": { "numero": 1, "predio": "Complejo Parque Norte" }, "…": "…"
+    }
+  ],
+  "jugadores": [
+    { "dorsal": 10, "nombres": "…", "apellidos": "Díaz", "capitan": true, "…": "…" }
+  ]
+}
+```
+
+Los partidos sin resultado (programados o suspendidos) tienen `golesAFavor`, `golesEnContra` y `resultado` en `null`.
+
+### Cómo probarlo
+
+```powershell
+pnpm db:seed
+pnpm start:dev
+```
+
+```powershell
+Invoke-RestMethod http://localhost:3000/torneos/1/posiciones | Format-Table posicion, @{n='equipo';e={$_.equipo.nombre}}, partidosJugados, puntos
+Invoke-RestMethod http://localhost:3000/torneos/1/equipos/1
+```
+
+Se verificó la tabla del Apertura contra el mismo cálculo hecho en SQL directamente sobre la base: coinciden puntos, goles y orden.
 
 ## Etapa 7 — Caso de uso: generar el fixture
 

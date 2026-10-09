@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { TorneosModule } from './modules/torneos/torneos.module.js';
 import { EquiposModule } from './modules/equipos/equipos.module.js';
 import { InscripcionesEquipoModule } from './modules/inscripciones-equipo/inscripciones-equipo.module.js';
+import { PosicionesModule } from './modules/posiciones/posiciones.module.js';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { InscripcionesEquipoModule } from './modules/inscripciones-equipo/inscri
     TorneosModule,
     EquiposModule,
     InscripcionesEquipoModule,
+    PosicionesModule,
   ],
   controllers: [AppController],
   providers: [
