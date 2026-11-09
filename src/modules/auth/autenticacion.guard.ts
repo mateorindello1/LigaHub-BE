@@ -14,7 +14,7 @@ import type { ContenidoToken, PedidoAutenticado } from './contenido-token.js';
  * sesión en el pedido (pedido.usuario). Los endpoints marcados con @Publico() no lo exigen.
  * Equivale a [Authorize] con el esquema JwtBearer de ASP.NET Core.
  *
- * En S-2 se aplica solo a GET /auth/yo; en S-3 pasa a ser global, para todos los endpoints.
+ * Es global (registrado como APP_GUARD en AuthModule): se aplica a todos los endpoints.
  */
 @Injectable()
 export class AutenticacionGuard implements CanActivate {

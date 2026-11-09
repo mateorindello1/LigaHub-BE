@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { leerConfiguracion } from '../../config/configuracion.js';
@@ -6,14 +7,16 @@ import { UsuariosModule } from '../usuarios/usuarios.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AutenticacionGuard } from './autenticacion.guard.js';
+import { RolesGuard } from './roles.guard.js';
 
 /** Intentos de login permitidos por IP en cada ventana de tiempo. */
 const INTENTOS_LOGIN = 5;
 const VENTANA_LOGIN_MS = 60_000;
 
 /**
- * Módulo de autenticación: login con JWT y guard de autenticación.
- * Equivale a AddAuthentication().AddJwtBearer() en ASP.NET Core.
+ * Módulo de autenticación: login con JWT y guards globales de autenticación y de roles.
+ * Equivale a AddAuthentication().AddJwtBearer() + AddAuthorization() en ASP.NET Core, con una
+ * política de autorización por defecto que exige usuario autenticado.
  */
 @Module({
   imports: [
@@ -39,7 +42,12 @@ const VENTANA_LOGIN_MS = 60_000;
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AutenticacionGuard],
-  exports: [AutenticacionGuard, JwtModule],
+  providers: [
+    AuthService,
+    // Guards globales: se aplican a todos los endpoints, en este orden. Primero se exige el token
+    // (salvo @Publico()) y después se controlan los roles de @Roles(...).
+    { provide: APP_GUARD, useClass: AutenticacionGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
 export class AuthModule {}

@@ -57,15 +57,19 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 | **`helmet`** | Agrega encabezados HTTP de seguridad | Middleware de headers de seguridad |
 | **Respuestas sin datos sensibles** | `contraseniaHash` nunca sale en una respuesta: los repositorios seleccionan los campos a devolver | DTOs de respuesta / `Select` |
 | **Errores genéricos** | El filtro global de errores no devuelve trazas ni mensajes internos de la base | `UseExceptionHandler` en producción |
-| **Permisos documentados** | Cada endpoint lleva desde el principio el decorador `@Roles(...)` o `@Publico()`. Sin el guard activo no tienen efecto, pero cuando se active el login los permisos ya están definidos | Atributos `[Authorize]` |
+| **Permisos declarados** | Cada endpoint lleva el decorador `@Roles(...)` o `@Publico()` desde la etapa 4. Desde S-3 los guards globales los aplican | Atributos `[Authorize]` |
 
 ## Etapa de seguridad (antes de la aprobación directa)
 
-- `POST /auth/login` con **límite de intentos** (`@nestjs/throttler`) contra fuerza bruta.
-- Mensaje de login genérico: "Credenciales inválidas", sin indicar si falló el email o la contraseña.
-- Activar el guard global de autenticación y el guard de roles.
-- Seed del primer administrador.
-- En el frontend: pantalla de login, envío del token en el servicio de API y rutas protegidas según rol.
+| Medida | Estado |
+|:--|:--|
+| Usuarios con contraseñas en Argon2id y un usuario de prueba por rol | Hecho (S-1) |
+| `POST /auth/login` con mensaje genérico ("Credenciales inválidas.") y mismo tiempo de respuesta para email inexistente y contraseña incorrecta | Hecho (S-2) |
+| Límite de 5 intentos de login por minuto por IP (`@nestjs/throttler`) | Hecho (S-2) |
+| Guards globales de autenticación y de roles; 401 y 403 con mensajes en español | Hecho (S-3) |
+| Swagger con el botón Authorize | Hecho (S-3) |
+| Frontend: login, envío del token y pantallas según el rol | Pendiente (S-4 y S-5) |
+| Gestión de usuarios y roles por el administrador | Pendiente (S-6) |
 
 ## Pendientes a futuro
 

@@ -855,7 +855,7 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 
 ## Etapa 9 — Seguridad: autenticación y autorización
 
-**Estado:** En curso (S-1 y S-2 hechas)
+**Estado:** En curso (S-1 a S-3 hechas: la API está protegida)
 
 Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
 
@@ -865,7 +865,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 |:-:|:--|:-:|:-:|:-:|
 | S-1 | Usuarios, contraseñas con Argon2id y usuarios de prueba (uno por rol) | Sí | No | Hecha |
 | S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Hecha |
-| S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Pendiente |
+| S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Hecha |
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Pendiente |
 | S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Pendiente |
 | S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Pendiente |
@@ -1010,11 +1010,54 @@ Versiones fijas. La última de `@nestjs/jwt` (12.0.4) había salido hacía tres 
 
 ### S-3 — Protección de la API
 
-- **Guard global de autenticación:** todo endpoint exige token salvo los marcados con `@Publico()`. Equivale a un filtro `[Authorize]` global con `[AllowAnonymous]`.
-- **Guard de roles:** compara los roles del token con los de `@Roles(...)`. Equivale a `[Authorize(Roles = "...")]`.
-- Respuestas en español con el formato de error de la API: 401 (sin sesión o vencida) y 403 (sin permiso).
-- Swagger con el botón "Authorize" para probar los endpoints protegidos con un token.
-- **Test de integración:** login → endpoint protegido con y sin token y con un rol sin permiso. Cubre el test de integración que pide la cátedra.
+**Estado:** Hecha (2026-11-09)
+
+Los decoradores `@Publico()` y `@Roles(...)` estaban en todos los endpoints desde la etapa 4. Desde esta subetapa, dos **guards globales** los aplican.
+
+#### Cómo queda cada endpoint
+
+| Endpoints | Acceso |
+|:--|:--|
+| Consultas: torneos, equipos, inscripciones, posiciones, detalle del equipo, fixture | Público (`@Publico()`) |
+| `POST /auth/login` | Público, con límite de intentos |
+| `GET /auth/yo` | Cualquier usuario con sesión (sin `@Roles`) |
+| Altas, modificaciones y bajas; generar y deshacer el fixture | Solo Administrador (`@Roles(Rol.Administrador)`) |
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/auth/roles.guard.ts` | Nuevo: compara los roles del token con los de `@Roles(...)`; 403 "No tenés permiso para realizar esta acción." |
+| `src/modules/auth/auth.module.ts` | Registra `AutenticacionGuard` y `RolesGuard` como `APP_GUARD` (globales, en ese orden) |
+| `src/modules/auth/auth.controller.ts` | `GET /auth/yo` ya no necesita `@UseGuards`: lo cubre el guard global |
+| `src/common/seguridad/roles.decorator.ts` | `@Roles(...)` además marca el endpoint en Swagger: candado y respuestas 401 y 403 con el rol requerido |
+| `src/common/documentacion/configurar-swagger.ts` | Esquema de token Bearer (botón Authorize) y `persistAuthorization` |
+| `src/app.controller.ts` | `@Publico()` en el "Hello World" de ejemplo, que si no pasaba a pedir sesión |
+| `src/modules/auth/roles.guard.spec.ts` | Tests unitarios del guard de roles |
+| `test/permisos.e2e-spec.ts` | Test de integración de los permisos con cada rol |
+
+#### Conceptos
+
+- **`APP_GUARD`:** registrar un guard con este token lo hace global, para todos los endpoints de la aplicación. Equivale a `options.Filters.Add(new AuthorizeFilter())` o a una política de autorización por defecto en ASP.NET Core. Se registra en el `AuthModule` (y no en `main.ts` con `app.useGlobalGuards`) porque así el guard puede recibir dependencias por inyección (`JwtService`, `Reflector`).
+- **Orden de los guards:** se ejecutan en el orden en que se registran. Primero `AutenticacionGuard` verifica el token y deja el usuario en el pedido; después `RolesGuard` usa ese usuario. El `ThrottlerGuard` del login es local (`@UseGuards`) y corre después de los globales.
+- **Cerrado por defecto:** un endpoint nuevo sin decorador exige sesión. Si alguien se olvida de declarar el permiso, queda cerrado, no abierto.
+- **`Reflector.getAllAndOverride`:** lee los metadatos que dejan `@Publico()` y `@Roles(...)`, primero en el método y si no en el controller. Es la forma en que los guards "ven" los atributos, como `IAuthorizationRequirement` leyendo `[Authorize]`.
+- **401 y 403:** 401 (no autenticado) es "no sé quién sos": falta el token, está vencido o es inválido. 403 (sin permiso) es "sé quién sos, pero tu rol no alcanza". El frontend los trata distinto: el 401 lleva al login y el 403 muestra un mensaje.
+- **`applyDecorators`:** combina varios decoradores en uno. `@Roles(...)` junta el metadato para el guard con los decoradores de Swagger, así que el permiso y su documentación no se pueden desincronizar.
+
+#### Cómo se probó
+
+- **Unitarios** (`roles.guard.spec.ts`, 7 casos): endpoint público sin usuario; endpoint sin `@Roles` con cualquier rol; uno de los roles pedidos alcanza; usuario con varios roles; 403 si no tiene ninguno y si no hay usuario. En total pasan 42.
+- **Integración** (`test/permisos.e2e-spec.ts`, contra Azure con los usuarios del seed):
+  - Sin sesión: las consultas responden 200 y `POST /torneos` responde 401 "Tenés que iniciar sesión.".
+  - Asistente y Jugador: crear un torneo, borrar un equipo y generar el fixture responden 403, sin llegar a ejecutarse.
+  - Administrador: crea un torneo (201) y lo borra (204).
+  - `GET /auth/yo`: 200 con los tres roles.
+
+  Con los tests del login (S-2) son 12 de integración. **Cubren el test de integración que pide la cátedra.**
+- **Swagger:** el botón Authorize aparece arriba; los 11 endpoints de escritura tienen candado y dicen "Requiere el rol Administrador."; las consultas y el login no tienen candado.
+
+> **Efecto en el frontend:** hasta S-4, las pantallas que crean, modifican o borran reciben 401 "Tenés que iniciar sesión." porque todavía no envían el token. Las consultas (inicio, posiciones, fixture) siguen funcionando.
 
 ### S-6 — Gestión de usuarios (backend)
 

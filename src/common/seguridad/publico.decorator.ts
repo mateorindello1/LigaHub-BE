@@ -6,7 +6,6 @@ export const CLAVE_PUBLICO = 'esPublico';
  * Marca un endpoint como accesible sin iniciar sesión.
  * Equivale a [AllowAnonymous] de ASP.NET Core.
  *
- * Por ahora solo documenta el permiso: tiene efecto cuando se active el guard
- * de autenticación (etapa 9).
+ * Todos los demás endpoints exigen un token: los guards de autenticación y de roles son globales.
  */
 export const Publico = () => SetMetadata(CLAVE_PUBLICO, true);

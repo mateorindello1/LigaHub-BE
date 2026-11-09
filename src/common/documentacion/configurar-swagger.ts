@@ -14,13 +14,19 @@ export function configurarSwagger(app: INestApplication): void {
     .setTitle('LigaHub API')
     .setDescription(
       'API del sistema de gestión de torneos de fútbol LigaHub. ' +
-        'Las respuestas de error tienen el formato { estado, error, mensaje, detalles?, ruta, fecha }.',
+        'Las respuestas de error tienen el formato { estado, error, mensaje, detalles?, ruta, fecha }. ' +
+        'Los endpoints con candado requieren iniciar sesión: pedir un token en POST /auth/login y ' +
+        'cargarlo con el botón Authorize.',
     )
     .setVersion('0.1.0')
+    // Token JWT en el encabezado "Authorization: Bearer <token>" (botón Authorize).
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .build();
 
   const documento = SwaggerModule.createDocument(app, configuracion);
   SwaggerModule.setup(RUTA_DOCUMENTACION, app, documento, {
     customSiteTitle: 'LigaHub API',
+    // Mantiene el token cargado al recargar la página.
+    swaggerOptions: { persistAuthorization: true },
   });
 }

@@ -7,12 +7,11 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { Publico } from '../../common/seguridad/publico.decorator.js';
 import type { UsuarioConRoles } from '../usuarios/usuario.js';
 import { AuthService, type RespuestaLogin } from './auth.service.js';
-import { AutenticacionGuard } from './autenticacion.guard.js';
 import type { ContenidoToken } from './contenido-token.js';
 import { IniciarSesionDto } from './dto/iniciar-sesion.dto.js';
 import { UsuarioActual } from './usuario-actual.decorator.js';
@@ -35,8 +34,11 @@ export class AuthController {
     return this.authService.iniciarSesion(dto.email, dto.contrasenia);
   }
 
-  /** Devuelve los datos del usuario de la sesión: email, roles y jugador asociado. */
-  @UseGuards(AutenticacionGuard)
+  /**
+   * Devuelve los datos del usuario de la sesión: email, roles y jugador asociado.
+   * Sin @Roles: lo puede usar cualquier usuario que haya iniciado sesión.
+   */
+  @ApiBearerAuth()
   @Get('yo')
   obtenerUsuarioActual(
     @UsuarioActual() usuario: ContenidoToken,
