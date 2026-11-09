@@ -855,7 +855,7 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 
 ## Etapa 9 — Seguridad: autenticación y autorización
 
-**Estado:** En curso (S-1 hecha)
+**Estado:** En curso (S-1 y S-2 hechas)
 
 Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
 
@@ -864,7 +864,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 | Subetapa | Qué incluye | Backend | Frontend | Estado |
 |:-:|:--|:-:|:-:|:-:|
 | S-1 | Usuarios, contraseñas con Argon2id y usuarios de prueba (uno por rol) | Sí | No | Hecha |
-| S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Pendiente |
+| S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Hecha |
 | S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Pendiente |
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Pendiente |
 | S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Pendiente |
@@ -933,9 +933,9 @@ Viene precompilado para cada plataforma: no compila nada al instalarse ni hay qu
 
 | Email | Rol | Jugador asociado |
 |:--|:--|:--|
-| `administrador@ligahub.test` | Administrador | — |
-| `asistente@ligahub.test` | Asistente | — |
-| `jugador@ligahub.test` | Jugador | Matías Díaz, capitán de Los Halcones (10) |
+| `administrador@ligahub.test` (id 1) | Administrador | — |
+| `asistente@ligahub.test` (id 2) | Asistente | — |
+| `jugador@ligahub.test` (id 3) | Jugador | Matías Díaz, capitán de Los Halcones (10) |
 
 La contraseña de los tres es la de `SEED_CONTRASENIA` en el `.env`. Si falta o tiene menos de 12 caracteres, el seed no se ejecuta.
 
@@ -952,11 +952,61 @@ La contraseña de los tres es la de `SEED_CONTRASENIA` en el `.env`. Si falta o 
 
 ### S-2 — Login
 
-- `POST /auth/login` (público): recibe email y contraseña, verifica el hash y devuelve un JWT firmado (8 horas) con el id, el email y los roles.
-- Mensaje genérico ante cualquier falla: "Credenciales inválidas", sin decir si falló el email o la contraseña.
-- **Límite de intentos** con `@nestjs/throttler`, contra fuerza bruta.
-- `GET /auth/yo`: datos del usuario de la sesión (email, roles, jugador asociado). El frontend lo usa para armar la sesión.
-- Tests unitarios del servicio de autenticación.
+**Estado:** Hecha (2026-11-09)
+
+#### Instalación
+
+```powershell
+pnpm add "@nestjs/jwt@12.0.3" "@nestjs/throttler@6.7.1"
+```
+
+Versiones fijas. La última de `@nestjs/jwt` (12.0.4) había salido hacía tres días; por precaución se usa la anterior, que ya llevaba casi un mes publicada.
+
+#### Endpoints
+
+| Método y ruta | Acceso | Qué hace | Respuestas |
+|:--|:--|:--|:--|
+| `POST /auth/login` | Público, con límite de intentos | Recibe `{ email, contrasenia }` y devuelve `{ token, expira, usuario }` | 200; 400 si el cuerpo es inválido; 401 "Credenciales inválidas."; 429 si se superan los intentos |
+| `GET /auth/yo` | Con token | Devuelve el usuario de la sesión (id, email, foto, jugador asociado y roles), leído de la base | 200; 401 sin token, con token vencido o adulterado |
+
+#### Archivos
+
+| Archivo | Qué es |
+|:--|:--|
+| `src/modules/auth/auth.module.ts` | Configura `JwtModule` (secreto y duración desde `.env`) y `ThrottlerModule` (5 intentos por minuto) |
+| `src/modules/auth/auth.controller.ts` | `POST /auth/login` y `GET /auth/yo` |
+| `src/modules/auth/auth.service.ts` | Verifica las credenciales y firma el token |
+| `src/modules/auth/autenticacion.guard.ts` | Exige un token válido en `Authorization: Bearer` y deja el usuario en el pedido. Respeta `@Publico()` |
+| `src/modules/auth/usuario-actual.decorator.ts` | `@UsuarioActual()`: el usuario de la sesión como parámetro del controller |
+| `src/modules/auth/contenido-token.ts` | Qué lleva el token: `sub` (id), `email` y `roles` |
+| `src/modules/auth/dto/iniciar-sesion.dto.ts` | Validación del cuerpo del login |
+| `src/modules/auth/auth.service.spec.ts` | Tests unitarios del servicio |
+| `test/auth.e2e-spec.ts` | Test de integración del login contra la API completa |
+
+#### Conceptos
+
+- **JWT (JSON Web Token):** tres partes en base64 separadas por puntos: encabezado, contenido y firma. El contenido (`{"sub":2,"email":"asistente@ligahub.test","roles":[2],"iat":...,"exp":...}`) **se puede leer sin la clave**: va firmado, no cifrado. Por eso nunca lleva datos sensibles. La firma (HMAC con `JWT_SECRET`) impide modificarlo: un token adulterado se rechaza. `exp` es el vencimiento, 8 horas después de `iat` (emisión).
+- **API sin estado:** la API no guarda sesiones. Cada pedido trae su token y el guard lo verifica con la clave. Es el esquema `JwtBearer` de ASP.NET Core.
+- **Guard (`CanActivate`):** decide si un pedido puede llegar al controller; es un filtro de autorización de ASP.NET Core. `AutenticacionGuard` se aplica por ahora solo a `GET /auth/yo` con `@UseGuards`; en S-3 pasa a ser global.
+- **`@UsuarioActual()`:** decorador de parámetro que entrega el contenido del token. Equivale a leer `User` (el `ClaimsPrincipal`) en un controller.
+- **`/auth/yo` lee el usuario de la base** y no solo del token: si al usuario le cambiaron los roles o lo borraron, se ve enseguida.
+- **Mensaje genérico:** para un email inexistente y para una contraseña incorrecta la respuesta es la misma ("Credenciales inválidas."). Si fueran distintas, el login serviría para averiguar qué emails están registrados.
+- **Mismo tiempo de respuesta:** con un email inexistente igual se verifica la contraseña, contra un hash ficticio. Si no, esa respuesta sería casi instantánea (no hay hash que calcular) y el tiempo delataría que el email no existe.
+- **Límite de intentos (`@nestjs/throttler`):** 5 intentos por minuto por IP en el login; el sexto responde 429 "Demasiados intentos de inicio de sesión. Esperá un minuto y volvé a intentar.", aunque la contraseña sea correcta. Frena los ataques de fuerza bruta. Equivale al middleware de *rate limiting* de ASP.NET Core. Los contadores están en memoria: se reinician al reiniciar la API.
+- **`registerAsync`:** la configuración del JWT se lee cuando se crea el módulo, con el `.env` ya cargado y validado, y no al importar el archivo.
+
+> **Para el deploy (AD-6):** detrás del proxy de Azure, la IP del cliente llega en el encabezado `X-Forwarded-For`. Habrá que habilitar `trust proxy` en Express para que el límite se aplique por cliente y no a todos juntos.
+
+#### Cómo se probó
+
+- **Unitarios** (`auth.service.spec.ts`, con un repositorio falso en memoria): el token trae id, email y roles; vence a las 8 horas; contraseña incorrecta y email inexistente dan 401 con el mismo mensaje; `obtenerUsuarioActual` no devuelve el hash y da 401 si el usuario no existe. En total pasan 35.
+- **Integración** (`test/auth.e2e-spec.ts`, la API completa contra Azure con el seed cargado):
+  - Login correcto: 200 con token y usuario, sin el hash.
+  - Contraseña incorrecta y email inexistente: 401 con el mismo mensaje.
+  - Email mal formado: 400 con el detalle en el campo `email`.
+  - `GET /auth/yo`: 200 con token, 401 sin token ("Tenés que iniciar sesión.") y 401 con un token adulterado.
+  - Sexto intento en un minuto: 429, aunque la contraseña sea correcta.
+- **A mano:** login con ` Asistente@LigaHub.test` (mayúsculas y un espacio): 200, y el contenido del token decodificado muestra `sub`, `email`, `roles`, `iat` y `exp`. Swagger muestra los dos endpoints en el grupo "Autenticación".
 
 ### S-3 — Protección de la API
 
@@ -1041,9 +1091,17 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 
 #### Problema encontrado en el seed: ids que empezaban en 0
 
-El seed borra todo y reinicia los contadores IDENTITY con `DBCC CHECKIDENT ('Tabla', RESEED, 0)`, para que los ids vuelvan a empezar en 1. En una tabla que **nunca tuvo filas** (como las recién creadas en Azure), SQL Server usa el valor del RESEED como **primer** id, y los torneos quedaron con id 0 y 1. En la base local no pasaba porque las tablas ya habían tenido datos.
+El seed borra todo y reinicia los contadores IDENTITY con `DBCC CHECKIDENT`, para que los ids vuelvan a empezar en 1. Con `RESEED 0`, los torneos de Azure quedaron con id 0 y 1. En la base local no pasaba.
 
-Corrección en `prisma/seed.ts`: el RESEED se aplica solo si la tabla ya usó ids (`sys.identity_columns.last_value` no es `NULL`). Se probó con una tabla temporal en los dos casos (tabla nueva y tabla vaciada): el primer id es 1.
+La regla de SQL Server es que **si la tabla nunca tuvo filas, el primer id es el valor del RESEED**; si ya tuvo filas, es ese valor más 1. Las tablas recién creadas en Azure nunca habían tenido filas.
+
+La primera corrección (en AD-1) no alcanzó: en S-1 los usuarios quedaron con ids 0, 1 y 2, porque la tabla `Usuario` había recibido un RESEED del seed viejo sin haber tenido filas nunca. Midiendo en una tabla temporal se vio que `sys.identity_columns.last_value` **sigue en NULL hasta el primer INSERT, aunque haya un RESEED**, así que es la forma exacta de saber si la tabla nunca tuvo filas.
+
+Corrección final en `prisma/seed.ts`:
+- `last_value` NULL (nunca tuvo filas): `RESEED 1`, el primer id es 1.
+- `last_value` con valor (ya tuvo filas): `RESEED 0`, el próximo id es 1.
+
+Se probó en una tabla temporal en cuatro estados (nueva; con filas y vaciada; nueva con un RESEED 0 previo; y la corrida siguiente sobre esa misma tabla): en todos, el primer id es 1. En Azure, todas las tablas con IDENTITY empiezan en 1.
 
 #### Archivos
 

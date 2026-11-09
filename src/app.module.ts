@@ -11,6 +11,7 @@ import { InscripcionesEquipoModule } from './modules/inscripciones-equipo/inscri
 import { PosicionesModule } from './modules/posiciones/posiciones.module.js';
 import { FixtureModule } from './modules/fixture/fixture.module.js';
 import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
     PosicionesModule,
     FixtureModule,
     UsuariosModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [

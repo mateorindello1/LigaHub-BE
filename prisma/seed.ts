@@ -125,9 +125,11 @@ async function main(): Promise<void> {
     await prisma.predio.deleteMany();
 
     // Reinicia los IDENTITY para que los ids vuelvan a empezar en 1.
-    // RESEED 0 solo se aplica si la tabla ya usó ids (last_value no es NULL). En una tabla que
-    // nunca tuvo filas (por ejemplo, recién creada por las migraciones), SQL Server usa el valor
-    // del RESEED como primer id, y los ids empezarían en 0.
+    // Regla de SQL Server: si la tabla NUNCA tuvo filas, el primer id es el valor del RESEED;
+    // si ya tuvo filas, es el valor del RESEED + 1. Que nunca tuvo filas se sabe porque
+    // sys.identity_columns.last_value sigue en NULL (aunque se le haya hecho un RESEED antes):
+    // - last_value NULL: RESEED 1, el primer id es 1.
+    // - last_value con valor: RESEED 0, el próximo id es 1.
     for (const tabla of [
       'Torneo',
       'Equipo',
@@ -137,9 +139,11 @@ async function main(): Promise<void> {
       'Usuario',
     ]) {
       await prisma.$executeRawUnsafe(
-        `IF EXISTS (SELECT 1 FROM sys.identity_columns
-                    WHERE object_id = OBJECT_ID('${tabla}') AND last_value IS NOT NULL)
-           DBCC CHECKIDENT ('${tabla}', RESEED, 0)`,
+        `IF (SELECT last_value FROM sys.identity_columns
+             WHERE object_id = OBJECT_ID('${tabla}')) IS NULL
+           DBCC CHECKIDENT ('${tabla}', RESEED, 1) WITH NO_INFOMSGS;
+         ELSE
+           DBCC CHECKIDENT ('${tabla}', RESEED, 0) WITH NO_INFOMSGS;`,
       );
     }
     // #endregion
