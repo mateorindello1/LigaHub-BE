@@ -10,6 +10,7 @@ import { EquiposModule } from './modules/equipos/equipos.module.js';
 import { InscripcionesEquipoModule } from './modules/inscripciones-equipo/inscripciones-equipo.module.js';
 import { PosicionesModule } from './modules/posiciones/posiciones.module.js';
 import { FixtureModule } from './modules/fixture/fixture.module.js';
+import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { FixtureModule } from './modules/fixture/fixture.module.js';
     InscripcionesEquipoModule,
     PosicionesModule,
     FixtureModule,
+    UsuariosModule,
   ],
   controllers: [AppController],
   providers: [

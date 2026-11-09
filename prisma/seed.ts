@@ -10,6 +10,8 @@
  * - "Apertura 2026" en curso: seis equipos con siete jugadores cada uno y fixture de cinco fechas
  *   (fechas 1 a 3 jugadas, con un WO y un partido suspendido; fechas 4 y 5 programadas).
  * - "Clausura 2026" con inscripciones abiertas: cuatro equipos inscriptos, sin fixture.
+ * - Un usuario por rol (administrador, asistente y jugador), con la contraseña de SEED_CONTRASENIA.
+ *   El usuario jugador está asociado al capitán del primer equipo.
  *
  * Los datos son ficticios. Los emails usan el dominio reservado .test.
  */
@@ -19,6 +21,8 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 import { generarFixture } from '../src/modules/fixture/generar-fixture.js';
 import { EstadoPartido } from '../src/modules/partidos/estado-partido.enum.js';
 import { EstadoTorneo } from '../src/modules/torneos/estado-torneo.enum.js';
+import { Rol } from '../src/common/seguridad/rol.enum.js';
+import { ContraseniasService } from '../src/modules/usuarios/contrasenias.service.js';
 
 // #region Datos fijos
 
@@ -92,6 +96,13 @@ async function main(): Promise<void> {
   const cadenaConexion = process.env.DATABASE_URL;
   if (!cadenaConexion) {
     throw new Error('Falta la variable de entorno DATABASE_URL.');
+  }
+  // Contraseña de los usuarios de prueba: se lee del .env para que no quede en el repositorio.
+  const contraseniaPrueba = process.env.SEED_CONTRASENIA?.trim();
+  if (!contraseniaPrueba || contraseniaPrueba.length < 12) {
+    throw new Error(
+      'Falta SEED_CONTRASENIA en .env (contraseña de los usuarios de prueba, de al menos 12 caracteres).',
+    );
   }
 
   const prisma = new PrismaClient({ adapter: new PrismaMssql(cadenaConexion) });
@@ -171,6 +182,8 @@ async function main(): Promise<void> {
     const equiposApertura = equipos.slice(0, 6);
 
     let numeroJugador = 0;
+    // Capitán del primer equipo: se le asocia el usuario de prueba con rol Jugador.
+    let capitanPrimerEquipoId = 0;
     for (const equipo of equiposApertura) {
       const inscripcion = await prisma.inscripcionEquipo.create({
         data: { torneoId: apertura.id, equipoId: equipo.id },
@@ -198,6 +211,9 @@ async function main(): Promise<void> {
             capitan: dorsal === DORSAL_CAPITAN,
           },
         });
+        if (equipo === equiposApertura[0] && dorsal === DORSAL_CAPITAN) {
+          capitanPrimerEquipoId = jugador.id;
+        }
       }
     }
 
@@ -276,10 +292,31 @@ async function main(): Promise<void> {
     }
     // #endregion
 
+    // #region Usuarios de prueba: uno por rol
+    // Mismo servicio de hash que usa la API, para que el login los reconozca.
+    const contrasenias = new ContraseniasService();
+    const contraseniaHash = await contrasenias.generarHash(contraseniaPrueba);
+    const usuariosPrueba = [
+      { email: 'administrador@ligahub.test', rol: Rol.Administrador, jugadorId: null },
+      { email: 'asistente@ligahub.test', rol: Rol.Asistente, jugadorId: null },
+      { email: 'jugador@ligahub.test', rol: Rol.Jugador, jugadorId: capitanPrimerEquipoId },
+    ];
+    for (const usuario of usuariosPrueba) {
+      await prisma.usuario.create({
+        data: {
+          email: usuario.email,
+          contraseniaHash,
+          jugadorId: usuario.jugadorId,
+          roles: { create: { rol: usuario.rol } },
+        },
+      });
+    }
+    // #endregion
+
     console.log(
       `Seed completo: ${equipos.length} equipos, ${numeroJugador} jugadores, ` +
-        `torneo ${apertura.id} "Apertura" (en curso, ${fixture.length} fechas) y ` +
-        `torneo ${clausura.id} "Clausura" (inscripción).`,
+        `torneo ${apertura.id} "Apertura" (en curso, ${fixture.length} fechas), ` +
+        `torneo ${clausura.id} "Clausura" (inscripción) y ${usuariosPrueba.length} usuarios de prueba.`,
     );
   } finally {
     await prisma.$disconnect();

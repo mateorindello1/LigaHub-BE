@@ -4,8 +4,12 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { configurarSwagger } from './common/documentacion/configurar-swagger.js';
+import { leerConfiguracion } from './config/configuracion.js';
 
 async function bootstrap() {
+  // Valida el .env antes de arrancar: si falta algo, la API no levanta y el error dice qué corregir.
+  leerConfiguracion();
+
   const app = await NestFactory.create(AppModule);
 
   // Encabezados HTTP de seguridad (por ejemplo, evita que la API se cargue dentro de un iframe ajeno).

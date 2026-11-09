@@ -724,7 +724,7 @@
             <mxRectangle width="100" height="26" as="alternateBounds" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="t-Usuario-r3-c" value="FotoPerfilURL: varchar(500)" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;fontStyle=0;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Usuario-r3">
+        <mxCell id="t-Usuario-r3-c" value="FotoPerfilURL: varchar(500) null" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;fontStyle=0;overflow=hidden;whiteSpace=wrap;html=1;" vertex="1" parent="t-Usuario-r3">
           <mxGeometry as="geometry" x="100" width="270" height="26">
             <mxRectangle width="270" height="26" as="alternateBounds" />
           </mxGeometry>

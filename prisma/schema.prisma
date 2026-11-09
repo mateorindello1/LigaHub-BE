@@ -199,7 +199,8 @@ model Usuario {
   id              Int    @id @default(autoincrement())
   email           String @unique @db.VarChar(254)
   contraseniaHash String @db.VarChar(255)
-  fotoPerfilURL   String @db.VarChar(500)
+  /// Opcional: los usuarios que crea el administrador no tienen foto.
+  fotoPerfilURL   String? @db.VarChar(500)
   /// Un jugador tiene como máximo un usuario. No se declara @unique porque en SQL Server
   /// un índice único admite un solo NULL; se valida en el servicio.
   jugadorId       Int?

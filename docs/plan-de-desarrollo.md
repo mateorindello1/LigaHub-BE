@@ -19,7 +19,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 |  6  | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle)                                            |   Hecha   |
 |  7  | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture)                                       |   Hecha   |
 |  8  | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega)                                          | En curso  |
-|  9  | [Seguridad: autenticación y autorización (S-1 a S-6)](#etapa-9--seguridad-autenticación-y-autorización) | Pendiente |
+|  9  | [Seguridad: autenticación y autorización (S-1 a S-6)](#etapa-9--seguridad-autenticación-y-autorización) | En curso |
 | 10  | [Aprobación directa (AD-1 a AD-6)](#etapa-10--aprobación-directa) | En curso |
 
 ---
@@ -855,7 +855,7 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 
 ## Etapa 9 — Seguridad: autenticación y autorización
 
-**Estado:** Pendiente
+**Estado:** En curso (S-1 hecha)
 
 Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
 
@@ -863,7 +863,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 
 | Subetapa | Qué incluye | Backend | Frontend | Estado |
 |:-:|:--|:-:|:-:|:-:|
-| S-1 | Usuarios, contraseñas con Argon2id y usuarios de prueba (uno por rol) | Sí | No | Pendiente |
+| S-1 | Usuarios, contraseñas con Argon2id y usuarios de prueba (uno por rol) | Sí | No | Hecha |
 | S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Pendiente |
 | S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Pendiente |
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Pendiente |
@@ -872,10 +872,83 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 
 ### S-1 — Usuarios y contraseñas
 
-- Servicio de contraseñas con **Argon2id** (`@node-rs/argon2`): generar el hash y verificarlo. Equivale a `PasswordHasher<T>` de Identity.
-- Repositorio de usuarios: buscar por email con sus roles. `contraseniaHash` nunca sale en una respuesta.
-- `JWT_SECRET` y la duración del token en `.env`, validados al arrancar.
-- Seed: un usuario por rol (Administrador, Asistente y Jugador, este último asociado a un jugador del seed). Las contraseñas de prueba quedan en `.env.example` como ejemplo de desarrollo, nunca las reales.
+**Estado:** Hecha (2026-11-09)
+
+#### Corrección previa del modelo: foto de perfil opcional
+
+`Usuario.fotoPerfilURL` era obligatoria, y un usuario creado por el administrador o por el seed no tiene foto. Pasó a opcional, igual que `Equipo.escudoURL` en la etapa 5.
+
+```powershell
+# 1. Crear la migración contra la base LOCAL (migrate dev necesita una base "sombra" temporal).
+#    Se usa la cadena local solo para este comando, sin tocar el .env.
+pnpm exec prisma migrate dev --name usuario_foto_opcional
+# 2. Aplicarla en Azure (la base del .env).
+pnpm db:deploy
+```
+
+La migración es `ALTER TABLE [dbo].[Usuario] ALTER COLUMN [fotoPerfilURL] VARCHAR(500) NULL`. También se marcó como `null` en el diagrama (`modelo-de-datos.drawio` y `.png`) y en el Mermaid de la proposal.
+
+> **Base pausada:** la primera vez, `db:deploy` falló con "Database 'ligahub' ... is not currently available": la base sin servidor estaba pausada. La API espera hasta 60 segundos (`connectTimeout`), pero el motor de migraciones de Prisma no. Se resuelve reintentando a los pocos segundos.
+
+#### Instalación
+
+```powershell
+pnpm add @node-rs/argon2
+```
+
+Viene precompilado para cada plataforma: no compila nada al instalarse ni hay que aprobar scripts en `pnpm-workspace.yaml`.
+
+#### Archivos
+
+| Archivo | Qué es |
+|:--|:--|
+| `src/config/configuracion.ts` | Lee y valida el `.env` al arrancar: `DATABASE_URL`, `JWT_SECRET` (al menos 32 caracteres) y `JWT_DURACION` (por defecto `8h`) |
+| `src/config/configuracion.spec.ts` | Tests de la validación |
+| `src/main.ts` | Llama a `leerConfiguracion()` antes de crear la aplicación |
+| `src/modules/usuarios/contrasenias.service.ts` | Hash y verificación con Argon2id |
+| `src/modules/usuarios/contrasenias.service.spec.ts` | Tests del hash |
+| `src/modules/usuarios/usuario.ts` | Tipos `UsuarioConRoles` (sin hash) y `UsuarioConCredenciales` (con hash, solo para el login), y `normalizarEmail` |
+| `src/modules/usuarios/usuarios.repository.ts` | `buscarConCredenciales(email)` y `obtenerPorId(id)` |
+| `src/modules/usuarios/usuarios.module.ts` | Exporta el repositorio y el servicio de contraseñas para la autenticación (S-2) |
+| `src/app.module.ts` | Importa `UsuariosModule` |
+| `prisma/seed.ts` | Un usuario de prueba por rol |
+| `prisma/schema.prisma` y la migración `usuario_foto_opcional` | `fotoPerfilURL` opcional |
+| `.env.example` | `JWT_SECRET`, `JWT_DURACION` y `SEED_CONTRASENIA` |
+
+#### Conceptos
+
+- **Argon2id:** función de hash pensada para contraseñas: es lenta y usa mucha memoria a propósito, para que probar millones de contraseñas sea caro. Se usan los parámetros mínimos que recomienda [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html): 19 MiB de memoria, 2 pasadas y 1 hilo. Equivale a `PasswordHasher<T>` de Identity, que usa PBKDF2.
+- **Formato PHC del hash:** `$argon2id$v=19$m=19456,t=2,p=1$<sal>$<hash>`. Guarda el algoritmo, los parámetros y una **sal** aleatoria distinta por contraseña: la misma contraseña da hashes distintos, y no hace falta guardar nada más. Si en el futuro se suben los parámetros, los hashes viejos se siguen verificando.
+- **El hash nunca sale en una respuesta:** el repositorio tiene un `select` con los campos públicos. Solo `buscarConCredenciales` agrega `contraseniaHash`, y lo usa únicamente el login. Son tipos distintos (`UsuarioConRoles` y `UsuarioConCredenciales`), así que TypeScript avisa si se intenta devolver el que tiene el hash.
+- **Emails normalizados:** se guardan y se buscan sin espacios y en minúsculas.
+- **Validación de la configuración al arrancar:** es el `ValidateOnStart` de las opciones de ASP.NET Core. Con un `JWT_SECRET` corto, la API no arranca y muestra:
+
+  ```
+  Error: Configuración inválida en .env:
+  - JWT_SECRET debe tener al menos 32 caracteres.
+  ```
+- **Secretos fuera del repositorio:** `JWT_SECRET` y `SEED_CONTRASENIA` están solo en `.env`. Se generaron con valores aleatorios (`crypto.randomBytes`). El `.env.example` muestra cómo generar el secreto, sin el valor.
+
+#### Usuarios de prueba (seed)
+
+| Email | Rol | Jugador asociado |
+|:--|:--|:--|
+| `administrador@ligahub.test` | Administrador | — |
+| `asistente@ligahub.test` | Asistente | — |
+| `jugador@ligahub.test` | Jugador | Matías Díaz, capitán de Los Halcones (10) |
+
+La contraseña de los tres es la de `SEED_CONTRASENIA` en el `.env`. Si falta o tiene menos de 12 caracteres, el seed no se ejecuta.
+
+#### Cómo se probó
+
+- Tests unitarios: pasan los 29 (los 18 anteriores más 7 de la configuración y 4 del hash).
+- Seed en Azure y verificación con un script temporal que usa el mismo repositorio y el mismo servicio que usará el login:
+  - Los tres usuarios tienen su rol y el hash empieza con `$argon2id$v=19$m=19456,t=2,p=1`.
+  - La contraseña del `.env` verifica; una incorrecta no.
+  - El email se encuentra aunque venga con mayúsculas y espacios.
+  - `obtenerPorId` no incluye el hash.
+- La API arranca con el `.env` correcto y no arranca con un `JWT_SECRET` corto.
+- El test end-to-end sigue pasando.
 
 ### S-2 — Login
 
