@@ -3,7 +3,7 @@
 Decisiones tomadas el 2026-10-09. La implementación se hace en dos tiempos:
 
 - **Para la regularidad** (no exige login): medidas generales de la API y permisos documentados en cada endpoint.
-- **Para la aprobación directa:** login, guards de autenticación y de roles, y protección de rutas en el frontend.
+- **Etapa de seguridad**, previa al resto de la aprobación directa: login, guards de autenticación y de roles, y protección de rutas en el frontend. Subetapas S-1 a S-6 en el [plan de desarrollo](plan-de-desarrollo.md#etapa-9--seguridad-autenticación-y-autorización).
 
 Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mejorarse más adelante.
 
@@ -59,7 +59,7 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 | **Errores genéricos** | El filtro global de errores no devuelve trazas ni mensajes internos de la base | `UseExceptionHandler` en producción |
 | **Permisos documentados** | Cada endpoint lleva desde el principio el decorador `@Roles(...)` o `@Publico()`. Sin el guard activo no tienen efecto, pero cuando se active el login los permisos ya están definidos | Atributos `[Authorize]` |
 
-## Para la aprobación directa
+## Etapa de seguridad (antes de la aprobación directa)
 
 - `POST /auth/login` con **límite de intentos** (`@nestjs/throttler`) contra fuerza bruta.
 - Mensaje de login genérico: "Credenciales inválidas", sin indicar si falló el email o la contraseña.

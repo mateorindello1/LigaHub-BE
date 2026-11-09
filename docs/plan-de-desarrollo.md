@@ -19,7 +19,8 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 |  6  | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle)                                            |   Hecha   |
 |  7  | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture)                                       |   Hecha   |
 |  8  | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega)                                          | En curso  |
-|  9  | [Aprobación directa: login, roles, tests y ambientes](#etapa-9--aprobación-directa-login-roles-tests-y-ambientes) | Pendiente |
+|  9  | [Seguridad: autenticación y autorización (S-1 a S-6)](#etapa-9--seguridad-autenticación-y-autorización) | Pendiente |
+| 10  | [Aprobación directa (AD-1 a AD-6)](#etapa-10--aprobación-directa) | En curso |
 
 ---
 
@@ -852,10 +853,166 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 | `pnpm-workspace.yaml` | `'@scarf/scarf': false` |
 
 
-## Etapa 9 — Aprobación directa: login, roles, tests y ambientes
+## Etapa 9 — Seguridad: autenticación y autorización
 
 **Estado:** Pendiente
 
-- Login con JWT, contraseñas con Argon2id, límite de intentos, guard global de autenticación y guard de roles, y seed del primer administrador. Diseño completo en [seguridad.md](seguridad.md).
-- Tests unitarios (uno por integrante) y de integración.
-- Ambientes definidos con `.env`.
+Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
+
+El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.md](seguridad.md). Las subetapas tienen la misma numeración en los planes del backend y del frontend.
+
+| Subetapa | Qué incluye | Backend | Frontend | Estado |
+|:-:|:--|:-:|:-:|:-:|
+| S-1 | Usuarios, contraseñas con Argon2id y usuarios de prueba (uno por rol) | Sí | No | Pendiente |
+| S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Pendiente |
+| S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Pendiente |
+| S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Pendiente |
+| S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Pendiente |
+| S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Pendiente |
+
+### S-1 — Usuarios y contraseñas
+
+- Servicio de contraseñas con **Argon2id** (`@node-rs/argon2`): generar el hash y verificarlo. Equivale a `PasswordHasher<T>` de Identity.
+- Repositorio de usuarios: buscar por email con sus roles. `contraseniaHash` nunca sale en una respuesta.
+- `JWT_SECRET` y la duración del token en `.env`, validados al arrancar.
+- Seed: un usuario por rol (Administrador, Asistente y Jugador, este último asociado a un jugador del seed). Las contraseñas de prueba quedan en `.env.example` como ejemplo de desarrollo, nunca las reales.
+
+### S-2 — Login
+
+- `POST /auth/login` (público): recibe email y contraseña, verifica el hash y devuelve un JWT firmado (8 horas) con el id, el email y los roles.
+- Mensaje genérico ante cualquier falla: "Credenciales inválidas", sin decir si falló el email o la contraseña.
+- **Límite de intentos** con `@nestjs/throttler`, contra fuerza bruta.
+- `GET /auth/yo`: datos del usuario de la sesión (email, roles, jugador asociado). El frontend lo usa para armar la sesión.
+- Tests unitarios del servicio de autenticación.
+
+### S-3 — Protección de la API
+
+- **Guard global de autenticación:** todo endpoint exige token salvo los marcados con `@Publico()`. Equivale a un filtro `[Authorize]` global con `[AllowAnonymous]`.
+- **Guard de roles:** compara los roles del token con los de `@Roles(...)`. Equivale a `[Authorize(Roles = "...")]`.
+- Respuestas en español con el formato de error de la API: 401 (sin sesión o vencida) y 403 (sin permiso).
+- Swagger con el botón "Authorize" para probar los endpoints protegidos con un token.
+- **Test de integración:** login → endpoint protegido con y sin token y con un rol sin permiso. Cubre el test de integración que pide la cátedra.
+
+### S-6 — Gestión de usuarios (backend)
+
+- CRUD de usuarios y asignación de roles, solo para el Administrador. Cambio de contraseña.
+- Un usuario no puede quitarse a sí mismo el rol de Administrador (para no dejar el sistema sin administradores).
+
+## Etapa 10 — Aprobación directa
+
+**Estado:** En curso (AD-1 hecha)
+
+Subetapas con la misma numeración en los planes del backend y del frontend. Requiere la etapa de seguridad: los endpoints y pantallas nuevos se protegen por rol desde el principio. El orden tiene un motivo:
+- **AD-1 se adelantó:** es un requisito de regularidad.
+- **AD-2 antes que AD-4:** para cargar un resultado hacen falta jugadores inscriptos.
+- **Los tests de cada subetapa se escriben en la misma subetapa.** AD-5 cubre los que pide la cátedra y no corresponden a una en particular.
+
+| Subetapa | Qué incluye | Backend | Frontend | Estado |
+|:-:|:--|:-:|:-:|:-:|
+| AD-1 | Base de datos en la nube (Azure SQL). **También es requisito de regularidad** | Sí | No | Hecha |
+| AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Pendiente |
+| AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Pendiente |
+| AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Pendiente |
+| AD-5 | Tests que faltan | Sí | Sí | Pendiente |
+| AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
+
+### AD-1 — Base de datos en la nube
+
+**Estado:** Hecha (2026-11-09)
+
+**Por qué:** el FAQ de la cátedra exige que la base sea un servicio que "no debe requerir ejecutarse en local". Es un requisito de **regularidad**, no solo de la aprobación directa.
+
+**Dónde:** Azure SQL Database con la **oferta gratuita** (100.000 segundos de vCore y 32 GB por mes; al llegar al límite la base se pausa hasta el mes siguiente, sin cobrar).
+
+| Dato | Valor |
+|:--|:--|
+| Servidor | `ligahub.database.windows.net` |
+| Base | `ligahub` |
+| Grupo de recursos | `rg-ligahub` |
+| Modelo | Sin servidor (serverless), General Purpose |
+| Intercalación | `Modern_Spanish_CI_AS`, la misma que la base local |
+| Usuario de la aplicación | `ligahub_app`: usuario de la base (no del servidor) con `db_owner` |
+| Administrador | `ligahub_admin`: solo para administrar desde SSMS o el portal |
+
+#### Pasos
+
+1. **En el portal de Azure (Mateo):** crear la base con la oferta gratuita, el servidor con autenticación de SQL, acceso público con la IP propia habilitada y "Permitir servicios de Azure" (lo necesitará el deploy de AD-6).
+2. **Usuario de la aplicación.** Conectarse con SSMS como `ligahub_admin` a la base `ligahub` (en Opciones → Propiedades de conexión → Conectar con la base de datos: `ligahub`, porque en Azure SQL no se puede cambiar de base con `USE`) y ejecutar:
+
+   ```sql
+   CREATE USER ligahub_app WITH PASSWORD = '...';
+   ALTER ROLE db_owner ADD MEMBER ligahub_app;
+   ```
+
+   Es un **usuario contenido**: existe solo dentro de la base y no necesita un login en el servidor. Equivale al login `ligahub_app` de la base local.
+3. **Cadena de conexión en `.env`:**
+
+   ```
+   DATABASE_URL="sqlserver://ligahub.database.windows.net:1433;database=ligahub;user=ligahub_app;password={...};encrypt=true;trustServerCertificate=false;connectTimeout=60000"
+   ```
+
+   - `trustServerCertificate=false`: Azure tiene un certificado válido y se verifica (en local era `true` porque el certificado es autofirmado).
+   - `password={...}`: las llaves permiten que la contraseña tenga `;` o `=`.
+   - `connectTimeout=60000`: la base sin servidor se pausa sola después de un rato sin uso, y el primer pedido después de una pausa espera mientras se reactiva. El valor va en **milisegundos**: el adaptador `@prisma/adapter-mssql` lo pasa sin convertir al driver `mssql` (verificado en su código).
+4. **Crear las tablas y cargar los datos:**
+
+   ```powershell
+   pnpm exec prisma migrate status   # verifica la conexión y lista las migraciones pendientes
+   pnpm db:deploy                    # aplica las migraciones (prisma migrate deploy)
+   pnpm db:seed                      # carga los datos de ejemplo
+   ```
+
+   Se usa `migrate deploy` y no `migrate dev`: aplica las migraciones que ya existen, sin generar nuevas ni pedir una base "sombra". Es el comando para bases compartidas o de producción, como `Update-Database` con las migraciones ya creadas en EF Core.
+
+> **Aviso de Prisma:** al aplicar las migraciones, Prisma sugiere actualizar a `@latest`. Hay que ignorarlo: `latest` es Prisma 8, que no soporta SQL Server.
+
+#### Problema encontrado en el seed: ids que empezaban en 0
+
+El seed borra todo y reinicia los contadores IDENTITY con `DBCC CHECKIDENT ('Tabla', RESEED, 0)`, para que los ids vuelvan a empezar en 1. En una tabla que **nunca tuvo filas** (como las recién creadas en Azure), SQL Server usa el valor del RESEED como **primer** id, y los torneos quedaron con id 0 y 1. En la base local no pasaba porque las tablas ya habían tenido datos.
+
+Corrección en `prisma/seed.ts`: el RESEED se aplica solo si la tabla ya usó ids (`sys.identity_columns.last_value` no es `NULL`). Se probó con una tabla temporal en los dos casos (tabla nueva y tabla vaciada): el primer id es 1.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `.env` (no versionado) | `DATABASE_URL` apunta a Azure; la conexión local quedó comentada |
+| `.env.example` | Formato de la cadena para Azure y para SQL Server local |
+| `prisma/seed.ts` | RESEED condicional de los IDENTITY |
+
+#### Cómo se probó
+
+- `prisma migrate status` conecta y lista las 2 migraciones pendientes; `db:deploy` las aplica.
+- El seed carga 8 equipos, 42 jugadores, Apertura (id 1, en curso) y Clausura (id 2, en inscripción).
+- Tests unitarios (18) y end-to-end (1) pasan contra Azure.
+- La API responde `/torneos` en menos de un segundo, y el frontend muestra la tabla de posiciones de Apertura con los mismos números que la base local.
+
+**Para volver a la base local:** comentar la `DATABASE_URL` de Azure en `.env` y descomentar la local. Para crear migraciones nuevas (`prisma migrate dev`) conviene usar la base local, porque esa orden necesita crear una base "sombra" temporal; después se aplican en Azure con `pnpm db:deploy`.
+
+### AD-2 — Jugador e Inscripción de jugador
+
+- CRUD de Jugador (DNI único).
+- CRUD dependiente de Inscripción de jugador dentro de la inscripción del equipo: dorsal único por equipo y un solo capitán.
+- **Permiso por pertenencia:** un usuario con rol Jugador puede ver y modificar solo sus propios datos (se compara `Usuario.jugadorId` con el jugador pedido).
+
+### AD-3 — Predio, Cancha y programación de partidos
+
+- CRUD de Predio y CRUD dependiente de Cancha.
+- Asignar cancha y día y hora a cada partido del fixture.
+
+### AD-4 — Caso de uso: cargar el resultado de un partido
+
+Usa los partidos que genera el fixture (los dos casos de uso relacionados que pide la aprobación directa).
+- Jugadores que participaron (PartidoJugador) y eventos: gol, gol en contra, amonestación, expulsión y cambio.
+- El resultado se calcula a partir de los goles y el partido pasa a Finalizado. También W.O. y suspendido.
+- La tabla de posiciones se actualiza sola, porque se calcula a partir de los partidos.
+- Rol Asistente o Administrador.
+
+### AD-5 — Tests
+
+- Ya hay 18 tests unitarios (fixture y posiciones), y la etapa de seguridad agrega los de autenticación y el de integración. Faltan los tests de los servicios nuevos.
+
+### AD-6 — Ambientes y deploy
+
+- Ambientes desarrollo, test y producción con `.env` y validación de la configuración al arrancar.
+- Deploy de la API (por ejemplo, Azure App Service) y CORS para el frontend publicado.
