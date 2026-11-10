@@ -68,7 +68,7 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 | Límite de 5 intentos de login por minuto por IP (`@nestjs/throttler`) | Hecho (S-2) |
 | Guards globales de autenticación y de roles; 401 y 403 con mensajes en español | Hecho (S-3) |
 | Swagger con el botón Authorize | Hecho (S-3) |
-| Frontend: login, envío del token y pantallas según el rol | Pendiente (S-4 y S-5) |
+| Frontend: login, envío del token y pantallas según el rol | Hecho (S-4 y S-5) |
 | Gestión de usuarios y roles por el administrador | Pendiente (S-6) |
 
 ## Pendientes a futuro

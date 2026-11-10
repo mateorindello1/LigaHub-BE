@@ -855,7 +855,7 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 
 ## Etapa 9 — Seguridad: autenticación y autorización
 
-**Estado:** En curso (S-1 a S-3 hechas: la API está protegida)
+**Estado:** En curso (S-1 a S-5 hechas; falta S-6)
 
 Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
 
@@ -867,7 +867,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 | S-2 | Login con JWT, límite de intentos y datos del usuario actual | Sí | No | Hecha |
 | S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Hecha |
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Hecha |
-| S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Pendiente |
+| S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Hecha |
 | S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Pendiente |
 
 ### S-1 — Usuarios y contraseñas
