@@ -9,16 +9,52 @@ export interface Configuracion {
   jwt: {
     /** Secreto con el que se firman los tokens. Nunca va en el código. */
     secreto: string;
-    /** Vida del token, en el formato de la biblioteca de JWT: "8h", "30m", "1d". */
+    /** Vida del token de acceso, en el formato de la biblioteca de JWT: "15m", "1h", "1d". */
     duracion: string;
   };
+  sesion: ConfiguracionSesion;
+}
+
+/** Valores de SameSite que acepta la cookie del token de refresco. */
+export type SameSite = 'strict' | 'lax' | 'none';
+
+/** Configuración de la sesión que dura más que el token de acceso (token de refresco). */
+export interface ConfiguracionSesion {
+  /** Vida máxima de la sesión desde el login, en milisegundos. Después hay que volver a ingresar. */
+  duracionRefresco: number;
+  /**
+   * SameSite de la cookie del token de refresco. "strict" alcanza si el frontend y la API están
+   * en el mismo sitio (por ejemplo, localhost:5173 y localhost:3000); "none" hace falta si están
+   * en dominios distintos.
+   */
+  sameSite: SameSite;
 }
 
 /** Largo mínimo del secreto de los tokens: 32 caracteres (256 bits si son aleatorios). */
 const LARGO_MINIMO_SECRETO = 32;
 
-/** Duración por defecto del token si no se configura JWT_DURACION. */
-const DURACION_POR_DEFECTO = '8h';
+/** Duración por defecto del token de acceso si no se configura JWT_DURACION. */
+const DURACION_POR_DEFECTO = '15m';
+
+/** Duración por defecto de la sesión (token de refresco) si no se configura REFRESCO_DURACION. */
+const DURACION_REFRESCO_POR_DEFECTO = '7d';
+
+/** Milisegundos de cada unidad de duración. */
+const MILISEGUNDOS_POR_UNIDAD: Record<string, number> = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+};
+
+/**
+ * Convierte una duración como "15m" o "7d" a milisegundos.
+ * Devuelve null si no tiene el formato: un número seguido de s, m, h o d.
+ */
+export function aMilisegundos(duracion: string): number | null {
+  const partes = /^(\d+)([smhd])$/.exec(duracion);
+  return partes ? Number(partes[1]) * MILISEGUNDOS_POR_UNIDAD[partes[2]] : null;
+}
 
 /**
  * Lee y valida la configuración. Lanza un error con todos los problemas juntos, para no tener
@@ -45,10 +81,26 @@ export function leerConfiguracion(
   }
 
   const duracion = variables.JWT_DURACION?.trim() || DURACION_POR_DEFECTO;
-  // Un número seguido de la unidad: s (segundos), m (minutos), h (horas) o d (días).
-  if (!/^\d+[smhd]$/.test(duracion)) {
+  if (aMilisegundos(duracion) === null) {
     errores.push(
-      `JWT_DURACION tiene un formato inválido ("${duracion}"). Ejemplos: 8h, 30m, 1d.`,
+      `JWT_DURACION tiene un formato inválido ("${duracion}"). Ejemplos: 15m, 1h.`,
+    );
+  }
+
+  const duracionRefresco =
+    variables.REFRESCO_DURACION?.trim() || DURACION_REFRESCO_POR_DEFECTO;
+  const duracionRefrescoMs = aMilisegundos(duracionRefresco);
+  if (duracionRefrescoMs === null) {
+    errores.push(
+      `REFRESCO_DURACION tiene un formato inválido ("${duracionRefresco}"). Ejemplos: 7d, 12h.`,
+    );
+  }
+
+  const sameSite = (variables.COOKIE_SAMESITE?.trim().toLowerCase() ||
+    'strict') as SameSite;
+  if (!['strict', 'lax', 'none'].includes(sameSite)) {
+    errores.push(
+      `COOKIE_SAMESITE tiene un valor inválido ("${sameSite}"). Valores: strict, lax o none.`,
     );
   }
 
@@ -58,5 +110,9 @@ export function leerConfiguracion(
     );
   }
 
-  return { cadenaConexion, jwt: { secreto, duracion } };
+  return {
+    cadenaConexion,
+    jwt: { secreto, duracion },
+    sesion: { duracionRefresco: duracionRefrescoMs!, sameSite },
+  };
 }

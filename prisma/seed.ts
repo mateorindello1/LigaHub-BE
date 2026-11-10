@@ -271,6 +271,7 @@ async function main(): Promise<void> {
     await prisma.inscripcionJugador.deleteMany();
     await prisma.inscripcionEquipo.deleteMany();
     await prisma.usuarioRol.deleteMany();
+    await prisma.tokenRefresco.deleteMany();
     await prisma.usuario.deleteMany();
     await prisma.jugador.deleteMany();
     await prisma.equipo.deleteMany();

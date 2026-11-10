@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leerConfiguracion } from './configuracion.js';
+import { aMilisegundos, leerConfiguracion } from './configuracion.js';
 
 /** Variables válidas de base; cada test cambia la que prueba. */
 const VALIDAS = {
@@ -8,15 +8,34 @@ const VALIDAS = {
 };
 
 describe('leerConfiguracion', () => {
-  it('lee la configuración y usa 8h como duración por defecto', () => {
+  it('lee la configuración y usa los valores por defecto de la sesión', () => {
     // Act
     const configuracion = leerConfiguracion(VALIDAS);
 
-    // Assert
+    // Assert: token de acceso de 15 minutos, sesión de 7 días y cookie SameSite=Strict.
     expect(configuracion.cadenaConexion).toBe(VALIDAS.DATABASE_URL);
     expect(configuracion.jwt).toEqual({
       secreto: VALIDAS.JWT_SECRET,
-      duracion: '8h',
+      duracion: '15m',
+    });
+    expect(configuracion.sesion).toEqual({
+      duracionRefresco: 7 * 86_400_000,
+      sameSite: 'strict',
+    });
+  });
+
+  it('respeta REFRESCO_DURACION y COOKIE_SAMESITE si son válidas', () => {
+    // Act
+    const configuracion = leerConfiguracion({
+      ...VALIDAS,
+      REFRESCO_DURACION: '12h',
+      COOKIE_SAMESITE: 'None',
+    });
+
+    // Assert
+    expect(configuracion.sesion).toEqual({
+      duracionRefresco: 12 * 3_600_000,
+      sameSite: 'none',
     });
   });
 
@@ -44,6 +63,16 @@ describe('leerConfiguracion', () => {
       { JWT_DURACION: '8 horas' },
       'JWT_DURACION tiene un formato inválido',
     ],
+    [
+      'REFRESCO_DURACION inválida',
+      { REFRESCO_DURACION: '1 semana' },
+      'REFRESCO_DURACION tiene un formato inválido',
+    ],
+    [
+      'COOKIE_SAMESITE inválido',
+      { COOKIE_SAMESITE: 'a veces' },
+      'COOKIE_SAMESITE tiene un valor inválido',
+    ],
   ])('falla si %s', (_caso, cambio, mensaje) => {
     // Act y Assert
     expect(() => leerConfiguracion({ ...VALIDAS, ...cambio })).toThrow(mensaje);
@@ -54,5 +83,16 @@ describe('leerConfiguracion', () => {
     expect(() => leerConfiguracion({})).toThrow(
       /DATABASE_URL[\s\S]*JWT_SECRET/,
     );
+  });
+
+  it.each([
+    ['30s', 30_000],
+    ['15m', 900_000],
+    ['8h', 28_800_000],
+    ['7d', 604_800_000],
+    ['8 horas', null],
+  ])('aMilisegundos("%s") devuelve %s', (duracion, esperado) => {
+    // Act y Assert
+    expect(aMilisegundos(duracion)).toBe(esperado);
   });
 });

@@ -135,18 +135,28 @@ export class UsuariosRepository {
     return conRoles(usuario);
   }
 
-  /** Reemplaza el hash de la contraseña. */
+  /**
+   * Reemplaza el hash de la contraseña y revoca las sesiones abiertas del usuario: con la
+   * contraseña vieja ya no se puede seguir refrescando la sesión.
+   */
   async cambiarContrasenia(id: number, contraseniaHash: string): Promise<void> {
-    await this.prisma.usuario.update({
-      where: { id },
-      data: { contraseniaHash },
-    });
+    await this.prisma.$transaction([
+      this.prisma.usuario.update({
+        where: { id },
+        data: { contraseniaHash },
+      }),
+      this.prisma.tokenRefresco.updateMany({
+        where: { usuarioId: id, fechaHoraRevocacion: null },
+        data: { fechaHoraRevocacion: new Date() },
+      }),
+    ]);
   }
 
-  /** Borra el usuario y sus roles (las claves foráneas no borran en cascada). */
+  /** Borra el usuario, sus roles y sus tokens de refresco (las claves foráneas no borran en cascada). */
   async borrar(id: number): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.usuarioRol.deleteMany({ where: { usuarioId: id } }),
+      this.prisma.tokenRefresco.deleteMany({ where: { usuarioId: id } }),
       this.prisma.usuario.delete({ where: { id } }),
     ]);
   }

@@ -30,7 +30,7 @@ Para los de integración:
 
 ## Qué cubren
 
-### Unitarios (106 tests en 17 archivos)
+### Unitarios (122 tests en 17 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
@@ -47,16 +47,16 @@ Para los de integración:
 | `canchas/canchas.service.spec.ts` | Nombre de predio único, número de cancha único por predio, borrados con datos asociados |
 | `usuarios/usuarios.service.spec.ts` | Gestión de usuarios: email único, rol Jugador y jugador asociado, el administrador no se quita su rol ni se borra |
 | `usuarios/contrasenias.service.spec.ts` | Hash Argon2id y verificación |
-| `auth/auth.service.spec.ts` | Login: token con el id, el email y los roles, vencimiento a las 8 horas, usuario de la sesión sin el hash y 401 si ya no existe |
+| `auth/auth.service.spec.ts` | Login: token de acceso con el id, el email y los roles, que vence a los 15 minutos, y token de refresco de 7 días guardado como hash. Refresco con rotación; reutilizar un token usado revoca la sesión; token faltante, inexistente o vencido; cierre de sesión. Usuario de la sesión sin el hash y 401 si ya no existe |
 | `auth/roles.guard.spec.ts` | Guard de roles: público, sin roles, con y sin el rol requerido |
-| `config/configuracion.spec.ts` | Validación del `.env` al arrancar |
+| `config/configuracion.spec.ts` | Validación del `.env` al arrancar, valores por defecto de la sesión y conversión de duraciones |
 | `app.controller.spec.ts` | Endpoint raíz (el que genera Nest al crear el proyecto) |
 
-### Integración (22 tests en 7 archivos)
+### Integración (26 tests en 7 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
-| `auth.e2e-spec.ts` | Login correcto (sin el hash en la respuesta), incorrecto o con email inexistente (401 con el mismo mensaje), email mal formado (400), `GET /auth/yo` con token válido, sin token o adulterado, y límite de intentos (429 desde el sexto) |
+| `auth.e2e-spec.ts` | Login correcto (sin el hash en la respuesta), incorrecto o con email inexistente (401 con el mismo mensaje), email mal formado (400), `GET /auth/yo` con token válido, sin token o adulterado, y límite de intentos (429 desde el sexto). Cookie del token de refresco (`HttpOnly`, `Secure`, `SameSite`, `Path=/auth`); refresco con rotación y reutilización que revoca la sesión; refresco sin cookie; cierre de sesión |
 | `permisos.e2e-spec.ts` | Endpoints públicos sin sesión; 401 sin token; 403 con un rol que no alcanza; el Administrador crea y borra un torneo; `GET /auth/yo` con cualquier rol |
 | `usuarios.e2e-spec.ts` | Ciclo de un usuario: alta, cambio de rol que rige con el mismo token, cambio de contraseña y baja |
 | `jugadores.e2e-spec.ts` | Permiso por pertenencia del Jugador; alta, inscripción con capitanía y reglas del plantel |
@@ -80,19 +80,19 @@ Los tests de integración no corren en GitHub: la base de Azure solo acepta cone
 
 ### Última ejecución local (2026-11-10)
 
-**Unitarios** (`pnpm test:cov`):
+**Unitarios** (`pnpm test:cov`, después de S-7):
 
 ```
  Test Files  17 passed (17)
-      Tests  106 passed (106)
+      Tests  122 passed (122)
 
-Statements   : 51.09% ( 514/1006 )
-Branches     : 56.26% ( 265/471 )
-Functions    : 30.85% ( 108/350 )
-Lines        : 51.84% ( 507/978 )
+Statements   : 51.38% ( 555/1080 )
+Branches     : 57.88% ( 290/501 )
+Functions    : 30.64% ( 114/372 )
+Lines        : 52.09% ( 547/1050 )
 ```
 
-**Integración** (`pnpm test:cov:e2e`, contra Azure):
+**Integración** (`pnpm test:cov:e2e`, contra Azure). Esta corrida es anterior a S-7, que agregó 4 tests a `auth.e2e-spec.ts`:
 
 ```
  Test Files  7 passed (7)

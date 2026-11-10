@@ -17,11 +17,13 @@ async function bootstrap() {
 
   // CORS: solo los orígenes de CORS_ORIGIN (separados por coma) pueden llamar a la API desde un navegador.
   // Si la variable no está definida, no se habilita CORS y el navegador bloquea los pedidos de otros orígenes.
+  // credentials: true permite que esos orígenes envíen y reciban la cookie del token de refresco
+  // (por eso no se puede usar el comodín "*": los orígenes tienen que ser explícitos).
   const origenesPermitidos = process.env.CORS_ORIGIN?.split(',')
     .map((origen) => origen.trim())
     .filter(Boolean);
   if (origenesPermitidos?.length) {
-    app.enableCors({ origin: origenesPermitidos });
+    app.enableCors({ origin: origenesPermitidos, credentials: true });
   }
 
   // Documentación con Swagger UI en /docs, solo fuera de producción: no expone la API en el servidor publicado.

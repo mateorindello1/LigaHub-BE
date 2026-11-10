@@ -869,6 +869,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Hecha |
 | S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Hecha |
 | S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Hecha |
+| S-7 | Tokens de refresco con rotación y cookie `httpOnly`; token de acceso de 15 minutos solo en memoria | Sí | Sí | Hecha |
 
 ### S-1 — Usuarios y contraseñas
 
@@ -1141,6 +1142,100 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 
   En total pasan 16 de integración.
 - **Swagger:** los 7 endpoints nuevos aparecen con candado y respuestas 401 y 403.
+
+### S-7 — Tokens de refresco y cookie `httpOnly`
+
+**Estado:** Hecha (2026-11-10)
+
+Mejora de la sesión de S-2. Antes, el login devolvía un token de 8 horas y el frontend lo guardaba en `sessionStorage`, donde un ataque XSS podía leerlo. Ahora hay dos tokens: uno de acceso de 15 minutos, que el frontend guarda solo en memoria, y uno de refresco que viaja en una cookie `httpOnly`. El diseño completo está en [seguridad.md](seguridad.md#tokens-de-refresco-s-7).
+
+#### Endpoints
+
+| Método y ruta | Acceso | Qué hace |
+|:--|:--|:--|
+| `POST /auth/login` | Público | Igual que antes, y además deja el token de refresco en la cookie `ligahub_refresco` |
+| `POST /auth/refrescar` | Público (usa la cookie) | Devuelve otro token de acceso y reemplaza la cookie (rotación). Si la cookie no sirve, la borra y responde 401 |
+| `POST /auth/cerrar-sesion` | Público (usa la cookie) | Revoca la sesión y borra la cookie. 204 |
+
+`refrescar` y `cerrar-sesion` son públicos porque el token de acceso puede estar vencido: lo que identifica la sesión es la cookie.
+
+#### Modelo de datos
+
+Tabla nueva `TokenRefresco` (migración `20261110190000_tokens_refresco`):
+
+| Columna | Qué es |
+|:--|:--|
+| `id` | `uniqueidentifier` |
+| `usuarioId` | FK a `Usuario` |
+| `familiaId` | Identifica la sesión: el login crea una familia y cada refresco agrega un token a la misma |
+| `tokenHash` | SHA-256 del token, en hexadecimal (`char(64)`, único). El token no se guarda |
+| `fechaHoraCreacion` | Cuándo se emitió |
+| `fechaHoraVencimiento` | Fin de la sesión. El token nuevo hereda el del anterior: refrescar no alarga la sesión |
+| `fechaHoraRevocacion` | Cuándo se usó o se revocó. `NULL`: vigente |
+
+#### Pasos
+
+```powershell
+pnpm add cookie-parser@1
+pnpm add -D @types/cookie-parser@1
+
+# Migración sin base "sombra": compara el schema anterior (de git) con el nuevo.
+git show HEAD:prisma/schema.prisma > schema-anterior.prisma
+pnpm exec prisma migrate diff --from-schema schema-anterior.prisma --to-schema prisma/schema.prisma --script -o prisma/migrations/20261110190000_tokens_refresco/migration.sql
+pnpm db:deploy
+```
+
+`prisma migrate diff` con dos archivos de schema no necesita ninguna base, así que la migración se puede crear sin la base local ni la base "sombra" de `migrate dev`. Es como generar el script de una migración de EF con `Script-Migration` en lugar de `Add-Migration` contra una base.
+
+En el `.env` hay que cambiar `JWT_DURACION=8h` por `15m` (o borrar la línea: el valor por defecto ahora es `15m`).
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `prisma/schema.prisma` y la migración `tokens_refresco` | Modelo `TokenRefresco` |
+| `src/config/configuracion.ts` | `JWT_DURACION` por defecto `15m`; nuevas `REFRESCO_DURACION` (por defecto `7d`) y `COOKIE_SAMESITE` (por defecto `strict`); `aMilisegundos` |
+| `src/modules/auth/tokens-refresco.repository.ts` | Nuevo: buscar por hash, crear, rotar en transacción, revocar la familia y borrar los vencidos |
+| `src/modules/auth/cookie-refresco.ts` | Nuevo: opciones de la cookie (`HttpOnly`, `Secure`, `SameSite`, `Path=/auth`), escribirla, borrarla y leerla |
+| `src/modules/auth/auth.service.ts` | `iniciarSesion` crea la sesión; nuevos `refrescarSesion` (rotación y detección de reutilización) y `cerrarSesion` |
+| `src/modules/auth/auth.controller.ts` | Escribe la cookie con `@Res({ passthrough: true })`; endpoints `refrescar` y `cerrar-sesion` |
+| `src/modules/auth/auth.module.ts` | Registra el repositorio, la configuración de la sesión y `cookie-parser` para las rutas de `/auth` |
+| `src/main.ts` | CORS con `credentials: true` |
+| `src/modules/usuarios/usuarios.repository.ts` | Cambiar la contraseña revoca las sesiones del usuario; borrarlo borra sus tokens |
+| `prisma/seed.ts` | Borra los tokens antes que los usuarios |
+| `.env.example` | `JWT_DURACION=15m`, `REFRESCO_DURACION` y `COOKIE_SAMESITE` |
+| `src/modules/auth/auth.service.spec.ts`, `src/config/configuracion.spec.ts`, `test/auth.e2e-spec.ts` | Tests nuevos (ver abajo) |
+
+#### Conceptos
+
+- **Token de acceso y token de refresco:** el de acceso es el que autoriza cada pedido; dura poco para que, si se filtra, sirva poco. El de refresco no autoriza nada: solo sirve para pedir otro de acceso, y viaja solo a `/auth`. En ASP.NET Core Identity es la combinación de `BearerTokenOptions.BearerTokenExpiration` y `RefreshTokenExpiration` de los endpoints de Identity.
+- **No es un JWT:** el token de refresco es un valor aleatorio. No necesita llevar datos, porque la base dice a quién pertenece y si sigue vigente, y así se puede revocar (un JWT es válido hasta que vence).
+- **Rotación y familia:** cada uso marca el token como usado y emite otro con el mismo `familiaId`. Si alguien presenta uno ya usado, se revoca la familia entera.
+- **`@Res({ passthrough: true })`:** da acceso al `Response` de Express para escribir la cookie, sin que Nest deje de serializar lo que devuelve el método. Equivale a `Response.Cookies.Append(...)` y después `return Ok(...)`.
+- **Middleware por módulo (`NestModule.configure`):** `cookie-parser` se aplica solo a `AuthController`. Se registra en el módulo y no en `main.ts` para que también funcione en los tests de integración, que no pasan por `main.ts`. Es un `app.UseWhen(...)` limitado a una ruta.
+- **Proveedor de configuración (`CONFIGURACION_SESION`):** el servicio y el controller reciben la duración y el `SameSite` por inyección, leídos del `.env` en una factory. Equivale a `IOptions<ConfiguracionSesion>`. En el test unitario se pasan valores fijos.
+- **CORS con credenciales:** para que el navegador envíe y guarde la cookie en un pedido a otro origen, el frontend usa `credentials: 'include'` y la API responde `Access-Control-Allow-Credentials: true`. Con credenciales, el origen permitido no puede ser el comodín `*`.
+- **`Secure` en localhost:** los navegadores tratan `http://localhost` como contexto seguro y aceptan cookies `Secure` aunque no haya HTTPS.
+
+#### Cómo se probó
+
+- **Unitarios** (`auth.service.spec.ts` con repositorios en memoria y `configuracion.spec.ts`):
+  - El login emite un token de acceso de 15 minutos y uno de refresco de 7 días, y guarda solo el hash.
+  - Con credenciales incorrectas no se crea ninguna sesión.
+  - Refrescar entrega un token nuevo con el mismo vencimiento y marca el anterior como usado.
+  - Reutilizar un token ya usado responde 401 y deja sin efecto también el vigente.
+  - Sin token, con uno inexistente o con la sesión vencida, 401.
+  - Cerrar la sesión impide refrescarla; sin token no falla.
+  - Valores por defecto y validación de `REFRESCO_DURACION` y `COOKIE_SAMESITE`; `aMilisegundos`.
+
+  En total pasan 122.
+- **Integración** (`test/auth.e2e-spec.ts`, contra Azure):
+  - La cookie del login es `HttpOnly`, `Secure`, `SameSite=Strict` y `Path=/auth`, y su valor no aparece en el cuerpo.
+  - Refrescar devuelve un token que sirve para `GET /auth/yo` y otra cookie; reutilizar la anterior responde 401, borra la cookie y revoca también la nueva.
+  - Refrescar sin cookie responde 401; cerrar la sesión responde 204, borra la cookie y después refrescar responde 401.
+
+  Pasan los 9 de `auth.e2e-spec.ts`. En la suite completa pasaron 25 de 26: falló "solo el Administrador lista usuarios y jugadores", que espera un solo jugador con usuario. En la base había un usuario creado a mano (`jugador2@ligahub.test`) que no es del seed; no tiene relación con este cambio.
+- **End-to-end del frontend:** ver S-7 en el plan del frontend.
 
 ## Etapa 10 — Aprobación directa
 

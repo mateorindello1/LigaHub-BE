@@ -196,17 +196,18 @@ model Cancha {
 // #region Usuarios y roles
 
 model Usuario {
-  id              Int    @id @default(autoincrement())
-  email           String @unique @db.VarChar(254)
-  contraseniaHash String @db.VarChar(255)
+  id              Int     @id @default(autoincrement())
+  email           String  @unique @db.VarChar(254)
+  contraseniaHash String  @db.VarChar(255)
   /// Opcional: los usuarios que crea el administrador no tienen foto.
   fotoPerfilURL   String? @db.VarChar(500)
   /// Un jugador tiene como máximo un usuario. No se declara @unique porque en SQL Server
   /// un índice único admite un solo NULL; se valida en el servicio.
   jugadorId       Int?
 
-  jugador Jugador?     @relation(fields: [jugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  roles   UsuarioRol[]
+  jugador        Jugador?        @relation(fields: [jugadorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles          UsuarioRol[]
+  tokensRefresco TokenRefresco[]
 
   @@index([jugadorId])
 }
@@ -220,6 +221,28 @@ model UsuarioRol {
   usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([usuarioId, rol])
+}
+
+/// Token de refresco de una sesión. El token viaja en una cookie httpOnly; acá se guarda solo su
+/// hash SHA-256, así que quien lea la base no puede usarlo. Cada uso lo reemplaza por uno nuevo
+/// (rotación): todos los tokens de una misma sesión comparten familiaId.
+model TokenRefresco {
+  id                   String    @id @default(uuid()) @db.UniqueIdentifier
+  usuarioId            Int
+  /// Sesión a la que pertenece: el login crea la familia y cada refresco agrega un token.
+  familiaId            String    @db.UniqueIdentifier
+  /// SHA-256 del token, en hexadecimal.
+  tokenHash            String    @unique @db.Char(64)
+  fechaHoraCreacion    DateTime  @default(now()) @db.DateTime2
+  /// Fin de la sesión: se hereda del login, así que refrescar no la extiende.
+  fechaHoraVencimiento DateTime  @db.DateTime2
+  /// Cuándo se usó para obtener el siguiente o se revocó (cierre de sesión). Null: vigente.
+  fechaHoraRevocacion  DateTime? @db.DateTime2
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([usuarioId])
+  @@index([familiaId])
 }
 
 // #endregion

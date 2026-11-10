@@ -46,6 +46,90 @@ describe('Autenticación (e2e)', () => {
     expect(JSON.stringify(respuesta.body)).not.toContain('argon2');
   });
 
+  /** Devuelve la cookie del token de refresco ("nombre=valor") de una respuesta, o undefined. */
+  const cookieRefresco = (respuesta: request.Response) =>
+    ([] as string[])
+      .concat(respuesta.headers['set-cookie'] ?? [])
+      .find((cookie) => cookie.startsWith('ligahub_refresco='));
+
+  /** Pide un token de acceso nuevo con la cookie indicada. */
+  const refrescar = (cookie: string) =>
+    request(app.getHttpServer())
+      .post('/auth/refrescar')
+      .set('Cookie', cookie.split(';')[0]);
+
+  it('POST /auth/login deja el token de refresco en una cookie httpOnly, segura, SameSite y solo para /auth', async () => {
+    // Act
+    const respuesta = await login('administrador@ligahub.test', contrasenia);
+
+    // Assert: la cookie existe y su valor no aparece en el cuerpo.
+    const cookie = cookieRefresco(respuesta);
+    expect(cookie).toBeDefined();
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/Secure/i);
+    expect(cookie).toMatch(/SameSite=Strict/i);
+    expect(cookie).toMatch(/Path=\/auth/i);
+    const valor = cookie!.split(';')[0].split('=')[1];
+    expect(JSON.stringify(respuesta.body)).not.toContain(valor);
+  });
+
+  it('POST /auth/refrescar entrega un token de acceso nuevo y otra cookie; la anterior ya no sirve y reutilizarla corta la sesión', async () => {
+    // Arrange
+    const cookieLogin = cookieRefresco(
+      await login('asistente@ligahub.test', contrasenia),
+    )!;
+
+    // Act
+    const refresco = await refrescar(cookieLogin);
+    const cookieNueva = cookieRefresco(refresco)!;
+    const reutilizada = await refrescar(cookieLogin);
+    const nuevaDespuesDelRobo = await refrescar(cookieNueva);
+
+    // Assert: el refresco funciona y el token nuevo sirve para la API.
+    expect(refresco.status).toBe(200);
+    expect(refresco.body.usuario.email).toBe('asistente@ligahub.test');
+    expect(cookieNueva).not.toBe(cookieLogin);
+    const yo = await request(app.getHttpServer())
+      .get('/auth/yo')
+      .set('Authorization', `Bearer ${refresco.body.token}`);
+    expect(yo.status).toBe(200);
+    // Reutilizar la cookie vieja responde 401, la borra y revoca también la nueva.
+    expect(reutilizada.status).toBe(401);
+    expect(cookieRefresco(reutilizada)).toMatch(/ligahub_refresco=;/);
+    expect(nuevaDespuesDelRobo.status).toBe(401);
+  });
+
+  it('POST /auth/refrescar sin cookie responde 401', async () => {
+    // Act
+    const respuesta = await request(app.getHttpServer()).post(
+      '/auth/refrescar',
+    );
+
+    // Assert
+    expect(respuesta.status).toBe(401);
+    expect(respuesta.body.mensaje).toBe(
+      'La sesión venció o no es válida. Iniciá sesión de nuevo.',
+    );
+  });
+
+  it('POST /auth/cerrar-sesion revoca la sesión y borra la cookie', async () => {
+    // Arrange
+    const cookie = cookieRefresco(
+      await login('jugador@ligahub.test', contrasenia),
+    )!;
+
+    // Act
+    const cierre = await request(app.getHttpServer())
+      .post('/auth/cerrar-sesion')
+      .set('Cookie', cookie.split(';')[0]);
+    const refrescoDespues = await refrescar(cookie);
+
+    // Assert
+    expect(cierre.status).toBe(204);
+    expect(cookieRefresco(cierre)).toMatch(/ligahub_refresco=;/);
+    expect(refrescoDespues.status).toBe(401);
+  });
+
   it('POST /auth/login con contraseña incorrecta o email inexistente responde 401 con el mismo mensaje', async () => {
     // Act
     const [incorrecta, inexistente] = [
