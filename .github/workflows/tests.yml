@@ -1,0 +1,51 @@
+# Integración continua: en cada push y pull request a main, GitHub instala las dependencias,
+# corre el lint, compila y ejecuta los tests unitarios con cobertura. El resultado queda en la
+# pestaña Actions del repositorio: es la evidencia de ejecución de los tests.
+#
+# Los tests de integración (pnpm test:e2e) no corren acá: necesitan la base de Azure, que solo
+# acepta conexiones desde las IP habilitadas en su firewall. Se corren en local (ver docs/tests.md).
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      # Prisma la exige para generar el cliente (postinstall), pero los tests unitarios no se
+      # conectan a ninguna base: es un valor de relleno, no una conexión real.
+      DATABASE_URL: sqlserver://localhost:1433;database=ci;user=ci;password=ci;encrypt=true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Compilar
+        run: pnpm build
+
+      - name: Tests unitarios con cobertura
+        run: pnpm test:cov
+
+      - name: Guardar el reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: coverage/

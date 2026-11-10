@@ -9,5 +9,13 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.spec.ts'],
+    // Cobertura (pnpm test:cov): todo el código propio, aunque ningún test lo cargue (así cuenta
+    // como 0 % y no desaparece del reporte). Se excluye lo generado por Prisma y los tests.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: ['src/generated/**', 'src/**/*.spec.ts', 'src/main.ts'],
+      reporter: ['text-summary', 'text', 'html'],
+    },
   },
 });

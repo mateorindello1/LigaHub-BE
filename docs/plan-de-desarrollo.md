@@ -1142,7 +1142,7 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 
 ## Etapa 10 — Aprobación directa
 
-**Estado:** En curso (AD-1 a AD-4 hechas)
+**Estado:** En curso (AD-1 a AD-5 hechas)
 
 Subetapas con la misma numeración en los planes del backend y del frontend. Requiere la etapa de seguridad: los endpoints y pantallas nuevos se protegen por rol desde el principio. El orden tiene un motivo:
 - **AD-1 se adelantó:** es un requisito de regularidad.
@@ -1155,7 +1155,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 | AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Hecha |
 | AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Hecha |
 | AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Hecha |
-| AD-5 | Tests que faltan | Sí | Sí | Pendiente |
+| AD-5 | Tests que faltan | Sí | Sí | Hecha |
 | AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
 
 ### AD-1 — Base de datos en la nube
@@ -1632,7 +1632,93 @@ Cada test restaura lo que cambia, pero en paralelo un test ve los cambios tempor
 
 ### AD-5 — Tests
 
-- Ya hay 18 tests unitarios (fixture y posiciones), y la etapa de seguridad agrega los de autenticación y el de integración. Faltan los tests de los servicios nuevos.
+**Estado:** Hecha (2026-11-10)
+
+**Qué pide la cátedra en el backend** para la aprobación directa: un test automatizado por integrante y un test de integración. Para la documentación de aprobación pide además la evidencia de ejecución de los tests.
+
+**Cómo estaba:** las subetapas anteriores ya habían dejado 92 tests unitarios y 22 de integración. En AD-5:
+- Se completaron los tests unitarios que faltaban.
+- Se agregaron reportes de cobertura.
+- Se armó la integración continua en GitHub Actions.
+- Se documentó todo en [`docs/tests.md`](tests.md).
+
+> **Ojo con "1 test por integrante":** la cátedra puede mirar quién escribió cada test en el historial de Git. Conviene que Juan escriba y commitee al menos uno con su usuario (por ejemplo, un caso nuevo en `torneos.service.spec.ts`).
+
+#### Tests unitarios nuevos
+
+Los servicios de los CRUD de regularidad solo se probaban por integración. Ahora tienen tests unitarios con repositorios en memoria, igual que los de AD-2 a AD-4:
+
+| Archivo | Casos |
+|:--|:--|
+| `src/modules/torneos/torneos.service.spec.ts` | Estado inicial Inscripción, modificación parcial que no toca el estado, 404, borrado con y sin datos asociados |
+| `src/modules/equipos/equipos.service.spec.ts` | Escudo opcional como `null`, nombre único sin importar mayúsculas, modificar con el mismo nombre, borrado con datos asociados |
+| `src/modules/inscripciones-equipo/inscripciones-equipo.service.spec.ts` | Inscribir, equipo repetido, inscripciones cerradas, 404 de equipo y de inscripción, cambio de equipo, baja con jugadores |
+
+En total, 106 tests unitarios en 17 archivos.
+
+#### Cobertura
+
+| Comando | Qué mide | Reporte |
+|:--|:--|:--|
+| `pnpm test:cov` | Tests unitarios | `coverage/index.html` |
+| `pnpm test:cov:e2e` (nuevo) | Tests de integración | `coverage-e2e/index.html` |
+
+Los dos reportes miden todo `src/` sin lo que genera Prisma (`src/generated`). Antes, el reporte contaba solo los archivos que cargaba algún test e incluía código generado.
+
+| Corrida | Líneas | Funciones |
+|:--|:-:|:-:|
+| Unitarios | 51,8 % | 30,9 % |
+| Integración | 74,7 % | 74,9 % |
+
+Se complementan:
+- **Unitarios:** cubren las reglas de negocio y las funciones puras, pero no cargan controllers ni repositorios.
+- **Integración:** recorren la API completa, así que cubren también controllers, repositorios, guards y el filtro de errores.
+
+#### Integración continua
+
+`.github/workflows/tests.yml` corre en GitHub en cada push y pull request a `main`:
+1. Instala las dependencias (`pnpm install --frozen-lockfile`).
+2. Corre el lint.
+3. Compila.
+4. Ejecuta los tests unitarios con cobertura.
+5. Guarda el reporte como artefacto.
+
+El README muestra el estado del workflow con un badge.
+
+Detalles de la configuración:
+- **`DATABASE_URL` de relleno:** el `postinstall` ejecuta `prisma generate`, y `prisma.config.ts` exige la variable aunque no se conecte. Los tests unitarios no usan base.
+- **Sin tests de integración en GitHub:** la base de Azure solo acepta las IP habilitadas en su firewall. Se corren en local.
+- **Versiones:** pnpm 11 y Node 24, las mismas que en desarrollo.
+
+**Verificación antes del push:** no se puede ejecutar GitHub Actions desde la máquina. Se simuló copiando el repositorio, con los cambios sin commitear, a una carpeta limpia: sin `node_modules`, sin `.env` y con la `DATABASE_URL` de relleno. Ahí se corrieron los mismos comandos: instalación, lint, build y tests con cobertura, y todos pasaron. Al hacer el push conviene mirar la pestaña Actions para confirmar que también pasa en GitHub.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/torneos/torneos.service.spec.ts`, `equipos/equipos.service.spec.ts`, `inscripciones-equipo/inscripciones-equipo.service.spec.ts` | Nuevos: tests unitarios |
+| `vitest.config.ts` | Cobertura de todo `src/` sin lo generado |
+| `vitest.config.e2e.ts` | Cobertura de los tests de integración en `coverage-e2e/` |
+| `package.json` | Script `test:cov:e2e` |
+| `.github/workflows/tests.yml` | Nuevo: integración continua |
+| `.gitignore` | `coverage-e2e/` |
+| `docs/tests.md` | Nuevo: cómo correr los tests, qué cubren y evidencia de ejecución |
+| `README.md` | Badge del workflow, sección Tests y scripts de test |
+
+#### Conceptos
+
+- **Unitario frente a integración:**
+  - El unitario prueba una clase aislada, reemplazando lo que usa por versiones falsas. Es rápido y no necesita base.
+  - El de integración prueba varias piezas juntas: acá, la API entera con `Test.createTestingModule` y pedidos HTTP con Supertest. Es el `WebApplicationFactory` de ASP.NET Core.
+- **Cobertura:** porcentaje del código que se ejecutó durante los tests. Mide qué se recorrió, no si se verificó bien: es una guía para encontrar huecos, no un objetivo en sí. El proveedor `v8` usa la instrumentación del propio motor de JavaScript.
+- **Integración continua:** cada push dispara los tests en un servidor limpio. Si algo depende de la máquina de alguien (un `.env`, un paquete instalado a mano), falla ahí y no en la corrección. `--frozen-lockfile` instala exactamente las versiones de `pnpm-lock.yaml` y falla si no coinciden con `package.json`.
+
+#### Cómo se probó
+
+- **Unitarios:** pasan los 106 (`pnpm test:cov`).
+- **Integración:** pasan los 22 contra Azure (`pnpm test:cov:e2e`).
+- **Workflow:** simulado en una copia limpia, como se describe arriba.
+- **Calidad:** lint y compilación sin errores.
 
 ### AD-6 — Ambientes y deploy
 

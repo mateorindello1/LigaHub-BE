@@ -1,5 +1,7 @@
 # LigaHub — Backend
 
+[![Tests](https://github.com/mateorindello1/LigaHub-BE/actions/workflows/tests.yml/badge.svg)](https://github.com/mateorindello1/LigaHub-BE/actions/workflows/tests.yml)
+
 Repositorio de Back-End del proyecto LigaHub para la materia Desarrollo de Software — Ingeniería en Sistemas de Información — UTN FRRo — 2026.
 
 LigaHub es un sistema de gestión de torneos de fútbol: torneos, equipos, jugadores, inscripciones, generación del fixture y carga de resultados.
@@ -47,6 +49,10 @@ fnm use
 pnpm install
 ```
 
+## Tests
+
+106 tests unitarios de las reglas de negocio y 22 de integración contra la API completa, con Vitest. Cómo correrlos, qué cubren y la evidencia de ejecución: [`docs/tests.md`](docs/tests.md). Los tests unitarios corren en GitHub Actions en cada push a `main`.
+
 ## Documentación de la API
 
 Con la API levantada en desarrollo, la documentación interactiva (Swagger UI) está en [http://localhost:3000/docs](http://localhost:3000/docs). Desde ahí se pueden ver y probar todos los endpoints. La especificación OpenAPI en JSON está en `/docs-json`.
@@ -59,8 +65,9 @@ Con la API levantada en desarrollo, la documentación interactiva (Swagger UI) e
 | `pnpm build` | Compila a `dist/` |
 | `pnpm start:prod` | Ejecuta la versión compilada |
 | `pnpm test` | Tests unitarios |
-| `pnpm test:e2e` | Tests end-to-end |
-| `pnpm test:cov` | Tests con cobertura |
+| `pnpm test:cov` | Tests unitarios con cobertura |
+| `pnpm test:e2e` | Tests de integración: la API completa contra la base del `.env` |
+| `pnpm test:cov:e2e` | Tests de integración con cobertura |
 | `pnpm lint` | Linter |
 | `pnpm format` | Formatea el código con Prettier |
 | `pnpm db:migrate` | Genera y aplica una migración a partir de los cambios en `prisma/schema.prisma` (desarrollo) |

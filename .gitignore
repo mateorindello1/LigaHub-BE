@@ -150,3 +150,6 @@ src/generated/
 
 # Obsidian (configuración local del visor de docs)
 .obsidian/
+
+# Cobertura de los tests de integración
+coverage-e2e/
