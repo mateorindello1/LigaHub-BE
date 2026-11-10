@@ -1115,7 +1115,7 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 | `src/modules/usuarios/usuarios.controller.ts` | Nuevo: los 6 endpoints de `/usuarios` |
 | `src/modules/usuarios/dto/crear-usuario.dto.ts`, `modificar-usuario.dto.ts`, `cambiar-contrasenia.dto.ts` | Nuevos: validación de entrada |
 | `src/modules/usuarios/usuarios.module.ts` | Registra controller y servicio |
-| `src/modules/jugadores/*` | Nuevo módulo: `GET /jugadores` (el CRUD completo de jugadores es AD-2) |
+| `src/modules/jugadores/*` | Nuevo módulo: `GET /jugadores` (el CRUD completo se agregó en AD-2) |
 | `src/modules/auth/autenticacion.guard.ts` | Lee el usuario y sus roles de la base en cada pedido |
 | `src/app.module.ts` | Importa `JugadoresModule` |
 | `src/modules/usuarios/usuarios.service.spec.ts` | Nuevo: tests unitarios del servicio con un repositorio en memoria |
@@ -1142,7 +1142,7 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 
 ## Etapa 10 — Aprobación directa
 
-**Estado:** En curso (AD-1 hecha)
+**Estado:** En curso (AD-1 y AD-2 hechas)
 
 Subetapas con la misma numeración en los planes del backend y del frontend. Requiere la etapa de seguridad: los endpoints y pantallas nuevos se protegen por rol desde el principio. El orden tiene un motivo:
 - **AD-1 se adelantó:** es un requisito de regularidad.
@@ -1152,7 +1152,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 | Subetapa | Qué incluye | Backend | Frontend | Estado |
 |:-:|:--|:-:|:-:|:-:|
 | AD-1 | Base de datos en la nube (Azure SQL). **También es requisito de regularidad** | Sí | No | Hecha |
-| AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Pendiente |
+| AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Hecha |
 | AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Pendiente |
 | AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Pendiente |
 | AD-5 | Tests que faltan | Sí | Sí | Pendiente |
@@ -1241,9 +1241,139 @@ Se probó en una tabla temporal en cuatro estados (nueva; con filas y vaciada; n
 
 ### AD-2 — Jugador e Inscripción de jugador
 
-- CRUD de Jugador (DNI único).
-- CRUD dependiente de Inscripción de jugador dentro de la inscripción del equipo: dorsal único por equipo y un solo capitán.
-- **Permiso por pertenencia:** un usuario con rol Jugador puede ver y modificar solo sus propios datos (se compara `Usuario.jugadorId` con el jugador pedido).
+**Estado:** Hecha (2026-11-10)
+
+Incluye tres cosas:
+- El CRUD de Jugador.
+- El CRUD dependiente de Inscripción de jugador: el plantel de cada equipo en un torneo.
+- El primer **permiso por pertenencia**: un usuario con rol Jugador ve y modifica sus propios datos.
+
+#### Endpoints
+
+| Método y ruta | Quién | Qué hace | Respuesta |
+|:--|:--|:--|:-:|
+| `GET /jugadores` | Administrador | Lista los jugadores con el id de su usuario. Con `?disponiblesEnTorneo=:id`, solo los que no están en ningún equipo de ese torneo | 200 |
+| `GET /jugadores/:id` | Administrador o el propio jugador | Un jugador con sus inscripciones (equipo, torneo, dorsal y capitanía) | 200, 403 o 404 |
+| `POST /jugadores` | Administrador | Crea un jugador | 201 |
+| `PATCH /jugadores/:id` | Administrador o el propio jugador | Modifica los datos. El propio jugador, solo email, teléfono y dirección | 200 o 403 |
+| `DELETE /jugadores/:id` | Administrador | Borra un jugador sin inscripciones ni usuario | 204 |
+| `GET /torneos/:torneoId/inscripciones/:inscripcionId/jugadores` | Público | Plantel del equipo: dorsal, capitán y nombre, sin datos personales | 200 |
+| `GET .../jugadores/:id` | Público | Una inscripción de jugador | 200 o 404 |
+| `POST .../jugadores` | Administrador | Inscribe un jugador con dorsal y, opcionalmente, como capitán | 201 |
+| `PATCH .../jugadores/:id` | Administrador | Cambia el dorsal o la capitanía | 200 |
+| `DELETE .../jugadores/:id` | Administrador | Da de baja al jugador del equipo | 204 |
+
+Las rutas de inscripción de jugador cuelgan de la inscripción del equipo, igual que esta cuelga del torneo (etapa 5). El plantel pertenece a un equipo **en un torneo**, no al equipo en general.
+
+#### Reglas de negocio
+
+| Regla | Respuesta |
+|:--|:--|
+| DNI repetido | 409 "Ya existe un jugador con el DNI ..." |
+| DNI que no tiene 7 u 8 dígitos | 400 (DTO) |
+| Un usuario sin rol Administrador pide o modifica un jugador que no es el suyo | 403 "Solo podés ver y modificar tus propios datos." |
+| El propio jugador envía DNI, nombres o apellidos | 403: solo los cambia un administrador |
+| Borrar un jugador inscripto en un equipo | 409 |
+| Borrar un jugador con usuario asociado | 409 |
+| Torneo finalizado | 409: el plantel ya no se puede modificar |
+| El jugador ya está en otro equipo del mismo torneo | 409 "... ya está inscripto en ... en este torneo." |
+| Dorsal repetido en el equipo | 409 "El dorsal X ya lo usa ... en este equipo." |
+| Dorsal fuera de 1 a 99 | 400 (DTO) |
+| Dar de baja a un jugador que ya jugó partidos con el equipo | 409 |
+
+Decisiones:
+- **Un solo capitán por equipo:** al marcar un capitán nuevo, el anterior deja de serlo en la misma transacción. Cambiar de capitán es una operación normal: con un 409 habría que hacerla en dos pasos.
+- **Planteles modificables con el torneo en curso:** la inscripción de equipos se cierra al generar el fixture, pero un equipo puede sumar o cambiar jugadores a mitad del torneo. El plantel se bloquea recién cuando el torneo está finalizado.
+- **El 403 va antes que el 404:** el permiso por pertenencia se controla antes de buscar el jugador. Un jugador que pide un id ajeno recibe 403 aunque ese id no exista, así no puede averiguar qué ids existen.
+- **Dos emails distintos:** el del jugador es de contacto. No tiene relación con el email con el que su usuario inicia sesión.
+
+#### Permiso por pertenencia
+
+Los guards globales de S-3 deciden por rol: `@Roles(Rol.Administrador, Rol.Jugador)` deja pasar a los dos roles. La pertenencia depende del recurso pedido, así que la decide el servicio:
+
+```ts
+private validarPertenencia(id: number, sesion: UsuarioDeSesion): void {
+  if (sesion.roles.includes(Rol.Administrador)) return;
+  if (sesion.jugadorId !== id) {
+    throw new ForbiddenException('Solo podés ver y modificar tus propios datos.');
+  }
+}
+```
+
+Desde S-6, `AutenticacionGuard` ya lee el usuario de la base en cada pedido. Ahora además agrega `jugadorId` al usuario de la sesión (`UsuarioDeSesion`), así el servicio lo tiene sin otra consulta.
+
+En ASP.NET Core sería una policy con `IAuthorizationHandler<TRequirement, TResource>`, que recibe el recurso además del usuario.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/auth/contenido-token.ts` | Nuevo tipo `UsuarioDeSesion`: el contenido del token más `jugadorId` |
+| `src/modules/auth/autenticacion.guard.ts` | Agrega `jugadorId` al usuario de la sesión |
+| `src/modules/auth/usuario-actual.decorator.ts` | Devuelve `UsuarioDeSesion` |
+| `src/modules/jugadores/dto/crear-jugador.dto.ts`, `modificar-jugador.dto.ts`, `filtro-jugadores.dto.ts` | Nuevos: validación del cuerpo y del parámetro `disponiblesEnTorneo` |
+| `src/modules/jugadores/jugadores.repository.ts` | CRUD completo, filtro de disponibles e inscripciones del jugador |
+| `src/modules/jugadores/jugadores.service.ts` | Reglas de negocio y permiso por pertenencia |
+| `src/modules/jugadores/jugadores.controller.ts` | Los 5 endpoints de `/jugadores` |
+| `src/modules/jugadores/jugadores.module.ts` | Exporta el servicio para las inscripciones |
+| `src/modules/inscripciones-jugador/*` | Nuevo módulo: DTOs, repositorio (capitanía en transacción), servicio y controller |
+| `src/modules/inscripciones-equipo/inscripciones-equipo.module.ts` | Exporta su servicio |
+| `src/app.module.ts` | Importa `InscripcionesJugadorModule` |
+| `src/modules/jugadores/jugadores.service.spec.ts` | Nuevo: 6 tests unitarios |
+| `src/modules/inscripciones-jugador/inscripciones-jugador.service.spec.ts` | Nuevo: 8 tests unitarios |
+| `test/jugadores.e2e-spec.ts` | Nuevo: 3 tests de integración |
+
+#### Conceptos
+
+- **Parámetros de la URL con DTO:** `@Query() filtro: FiltroJugadoresDto` valida `?disponiblesEnTorneo=` con el mismo pipe global que los cuerpos. `@Type(() => Number)` lo convierte de texto a número antes de validar. Es el `[FromQuery]` de ASP.NET Core con un modelo y su validador.
+- **Filtro con `none` en Prisma:** "jugadores sin inscripciones en el torneo" se escribe `where: { inscripciones: { none: { inscripcionEquipo: { torneoId } } } }`, y Prisma lo traduce a un `NOT EXISTS`. En LINQ sería `.Where(j => !j.Inscripciones.Any(i => i.InscripcionEquipo.TorneoId == id))`.
+- **Transacción interactiva:** `$transaction(async (tx) => { ... })` le quita la capitanía al anterior y guarda la nueva en una sola unidad. Es el `BeginTransaction` + `SaveChanges` + `Commit` de EF Core.
+- **Campos según el rol en el mismo DTO:** el DTO valida la forma de todos los campos, y el servicio decide qué campos puede enviar cada rol (`CAMPOS_SOLO_ADMINISTRADOR`). Separarlo en dos endpoints también era válido, pero el plan pedía comparar `Usuario.jugadorId` con el jugador pedido sobre el mismo recurso.
+- **Servicios de otros módulos para validar:** el servicio de inscripciones de jugador usa los de torneos, inscripciones de equipo y jugadores, igual que en la etapa 5. Cada módulo exporta su servicio, como registrar una interfaz en el contenedor de DI de .NET.
+
+#### Cómo se probó
+
+**Unitarios** (en total pasan 66):
+- 6 de jugadores:
+  - DNI repetido.
+  - El administrador modifica todo.
+  - El jugador ve solo lo suyo y recibe 403 incluso con un id inexistente.
+  - El jugador solo modifica sus datos de contacto.
+  - Un asistente no accede.
+  - No se borra un jugador con inscripciones o con usuario.
+- 8 de inscripciones:
+  - El capitán es falso por defecto.
+  - Un jugador que ya está en otro equipo del torneo.
+  - Dorsal repetido en el equipo, pero válido en otro equipo.
+  - Traspaso de capitanía.
+  - Modificar sin cambiar el dorsal.
+  - Torneo finalizado.
+  - Baja de un jugador que jugó.
+  - 404 al pedir una inscripción desde otro equipo.
+
+**Integración** (`test/jugadores.e2e-spec.ts`, contra Azure; en total pasan 19):
+- **Rol Jugador:**
+  - Ve su detalle, con la inscripción de capitán.
+  - Recibe 403 al pedir otro jugador y el listado.
+  - Modifica su teléfono.
+  - Recibe 403 al enviar el DNI.
+  - El Asistente también recibe 403 al pedir ese jugador.
+- **Ciclo del Administrador en Clausura:**
+  - Alta del jugador, y 409 por DNI repetido.
+  - Inscripción como capitán.
+  - 409 al inscribir el mismo jugador en otro equipo y al repetir el dorsal.
+  - El jugador ya no figura en `disponiblesEnTorneo`.
+  - El plantel público no expone el DNI.
+  - 409 al borrar al jugador inscripto, y después las bajas.
+- **Sin permiso:** sin sesión responde 401; como Asistente, 403 al inscribir.
+
+Ajustes del test de integración:
+- Cada test tiene 30 segundos porque hace muchos pedidos a la base en la nube. La primera corrida pasó el límite de 5 segundos por defecto.
+- Esa corrida cortada dejó un jugador inscripto y la siguiente falló por el dorsal ocupado. Por eso ahora, antes y después de los tests, se borran los jugadores de prueba que hayan quedado.
+
+**Swagger:** aparecen los grupos "Jugadores" e "Inscripciones de jugadores".
+
+El seed no carga `PartidoJugador`. La regla "no dar de baja a quien ya jugó" se va a poder probar con datos reales a partir de AD-4; por ahora la cubre el test unitario.
 
 ### AD-3 — Predio, Cancha y programación de partidos
 

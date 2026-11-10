@@ -65,6 +65,7 @@ export class AutenticacionGuard implements CanActivate {
       sub: usuario.id,
       email: usuario.email,
       roles: usuario.roles,
+      jugadorId: usuario.jugadorId,
     };
     return true;
   }

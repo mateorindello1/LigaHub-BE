@@ -13,6 +13,7 @@ import { FixtureModule } from './modules/fixture/fixture.module.js';
 import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { JugadoresModule } from './modules/jugadores/jugadores.module.js';
+import { InscripcionesJugadorModule } from './modules/inscripciones-jugador/inscripciones-jugador.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { JugadoresModule } from './modules/jugadores/jugadores.module.js';
     UsuariosModule,
     AuthModule,
     JugadoresModule,
+    InscripcionesJugadorModule,
   ],
   controllers: [AppController],
   providers: [

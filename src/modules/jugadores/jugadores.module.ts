@@ -3,12 +3,10 @@ import { JugadoresController } from './jugadores.controller.js';
 import { JugadoresRepository } from './jugadores.repository.js';
 import { JugadoresService } from './jugadores.service.js';
 
-/**
- * Módulo de jugadores. Por ahora solo lista los jugadores (para la gestión de usuarios);
- * el CRUD completo se agrega en AD-2.
- */
+/** Módulo de jugadores. Exporta el servicio para que lo usen las inscripciones de jugadores. */
 @Module({
   controllers: [JugadoresController],
   providers: [JugadoresService, JugadoresRepository],
+  exports: [JugadoresService],
 })
 export class JugadoresModule {}

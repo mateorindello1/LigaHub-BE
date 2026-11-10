@@ -25,7 +25,7 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 
 **Por rol:** decorador `@Roles(Rol.Administrador, …)` en cada endpoint y un guard que compara con los roles del usuario (`UsuarioRol`). Equivale a `[Authorize(Roles = "…")]`.
 
-**Por pertenencia:** algunas acciones dependen de que el recurso sea del usuario (por ejemplo, un jugador solo modifica *sus* datos). Se valida en el servicio comparando `Usuario.jugadorId` con el recurso. Equivale a una policy con `IAuthorizationHandler` basada en el recurso.
+**Por pertenencia:** algunas acciones dependen de que el recurso sea del usuario (por ejemplo, un jugador solo modifica *sus* datos). Se valida en el servicio comparando `Usuario.jugadorId` con el recurso. Equivale a una policy con `IAuthorizationHandler` basada en el recurso. Implementado en AD-2 para `GET` y `PATCH /jugadores/:id` (ver el [plan](plan-de-desarrollo.md#ad-2--jugador-e-inscripción-de-jugador)).
 
 ### Roles
 
@@ -41,7 +41,7 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 |:--|:-:|:-:|:-:|:-:|
 | Ver torneos, fixture, resultados y posiciones | ✓ | ✓ | ✓ | ✓ |
 | Ver sus propios datos e inscripciones | | ✓ | | ✓ |
-| Modificar sus propios datos | | ✓ | | ✓ |
+| Modificar sus propios datos de contacto (email, teléfono y dirección; el DNI y el nombre solo los cambia el Administrador) | | ✓ | | ✓ |
 | (Futuro) Subir documentación de su inscripción | | ✓ | | ✓ |
 | Cargar resultados y eventos de partidos | | | ✓ | ✓ |
 | CRUD de torneos, equipos, jugadores, predios, canchas e inscripciones | | | | ✓ |
@@ -71,6 +71,8 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 | Frontend: login, envío del token y pantallas según el rol | Hecho (S-4 y S-5) |
 | Gestión de usuarios y roles por el administrador | Hecho (S-6) |
 | Los roles se leen de la base en cada pedido: un cambio de rol o una baja rigen enseguida, sin esperar a que venza el token | Hecho (S-6) |
+| Permiso por pertenencia: el rol Jugador ve y modifica solo su jugador (403 con cualquier otro id, exista o no) | Hecho (AD-2) |
+| Planteles públicos sin datos personales: el listado de jugadores de un equipo no incluye DNI, email ni teléfono | Hecho (AD-2) |
 
 ## Pendientes a futuro
 
