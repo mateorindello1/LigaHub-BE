@@ -7,8 +7,11 @@
  * Carga:
  * - Un predio con dos canchas.
  * - Ocho equipos.
- * - "Apertura 2026" en curso: seis equipos con siete jugadores cada uno y fixture de cinco fechas
- *   (fechas 1 a 3 jugadas, con un WO y un partido suspendido; fechas 4 y 5 programadas).
+ * - "Apertura 2026" en curso: seis equipos con nueve jugadores cada uno (siete titulares y dos
+ *   suplentes) y fixture de cinco fechas: fechas 1 a 3 jugadas, con un WO y un partido
+ *   suspendido; fechas 4 y 5 programadas.
+ * - Planilla de cada partido jugado, coherente con el marcador: quiénes jugaron, goles (alguno
+ *   en contra), amonestaciones, alguna expulsión y cambios. Ver generarPlanilla.
  * - "Clausura 2026" con inscripciones abiertas: cuatro equipos inscriptos, sin fixture.
  * - Un usuario por rol (administrador, asistente y jugador), con la contraseña de SEED_CONTRASENIA.
  *   El usuario jugador está asociado al capitán del primer equipo.
@@ -16,10 +19,12 @@
  * Los datos son ficticios. Los emails usan el dominio reservado .test.
  */
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import { PrismaMssql } from '@prisma/adapter-mssql';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { generarFixture } from '../src/modules/fixture/generar-fixture.js';
 import { EstadoPartido } from '../src/modules/partidos/estado-partido.enum.js';
+import { TipoEvento } from '../src/modules/partidos/tipo-evento.enum.js';
 import { EstadoTorneo } from '../src/modules/torneos/estado-torneo.enum.js';
 import { Rol } from '../src/common/seguridad/rol.enum.js';
 import { ContraseniasService } from '../src/modules/usuarios/contrasenias.service.js';
@@ -68,8 +73,10 @@ const APELLIDOS = [
   'Medina',
 ];
 
-const JUGADORES_POR_EQUIPO = 7;
-const DORSALES = [1, 2, 4, 5, 8, 9, 10];
+/** Fútbol 7: los siete primeros dorsales son los titulares y los dos últimos, suplentes. */
+const DORSALES = [1, 2, 4, 5, 8, 9, 10, 11, 14];
+const TITULARES = 7;
+const DORSAL_ARQUERO = 1;
 const DORSAL_CAPITAN = 10;
 
 /** Primer sábado del torneo y hora del primer partido de cada fecha. */
@@ -86,6 +93,153 @@ function crearAleatorio(semilla: number): () => number {
     return estado / 2 ** 31;
   };
 }
+
+// #region Planilla de los partidos jugados
+
+/** Jugador inscripto en un equipo del torneo. */
+interface Inscripto {
+  inscripcionJugadorId: string;
+  dorsal: number;
+}
+
+type Lado = 'local' | 'visitante';
+
+/** Evento ya asignado a jugadores, listo para guardar. */
+interface EventoGenerado {
+  tipoEvento: TipoEvento;
+  minuto: number;
+  inscripcionJugadorId: string;
+  inscripcionJugadorEntraId: string | null;
+}
+
+/** Planilla de un partido jugado: quiénes jugaron y los eventos. */
+interface Planilla {
+  jugaron: string[];
+  eventos: EventoGenerado[];
+}
+
+/**
+ * Genera una planilla coherente con el marcador:
+ * - Juegan los siete titulares de cada equipo y los suplentes que entran en un cambio.
+ * - Los goles suman exactamente el marcador; alrededor del 15 % es un gol en
+ *   contra de un jugador del equipo rival.
+ * - Uno o dos cambios por equipo en el segundo tiempo, de 0 a 3 amonestaciones y, a veces,
+ *   una expulsión.
+ *
+ * Los eventos se arman primero con su minuto y su equipo, y después se recorren en orden
+ * cronológico asignando jugadores que estén en cancha en ese momento: nadie hace un gol
+ * después de salir o de ser expulsado, ni antes de entrar, y nadie recibe dos amarillas.
+ * Los goles no los hace el arquero.
+ */
+function generarPlanilla(
+  planteles: Record<Lado, Inscripto[]>,
+  golesLocal: number,
+  golesVisitante: number,
+  aleatorio: () => number,
+): Planilla {
+  const entero = (desde: number, hasta: number) =>
+    desde + Math.floor(aleatorio() * (hasta - desde + 1));
+  const elegir = <T>(opciones: T[]): T =>
+    opciones[Math.floor(aleatorio() * opciones.length)];
+  const rival = (lado: Lado): Lado =>
+    lado === 'local' ? 'visitante' : 'local';
+
+  // #region Eventos sin jugador: tipo, minuto y equipo del protagonista
+  const borradores: { tipoEvento: TipoEvento; minuto: number; lado: Lado }[] =
+    [];
+  for (const [lado, goles] of [
+    ['local', golesLocal],
+    ['visitante', golesVisitante],
+  ] as const) {
+    for (let i = 0; i < goles; i++) {
+      const enContra = aleatorio() < 0.15;
+      borradores.push({
+        tipoEvento: enContra ? TipoEvento.GolEnContra : TipoEvento.Gol,
+        minuto: entero(1, 90),
+        // Un gol en contra lo hace un jugador del rival y suma para este equipo.
+        lado: enContra ? rival(lado) : lado,
+      });
+    }
+    for (let i = 0, cambios = entero(1, 2); i < cambios; i++) {
+      borradores.push({
+        tipoEvento: TipoEvento.Cambio,
+        minuto: entero(46, 85),
+        lado,
+      });
+    }
+  }
+  for (let i = 0, amonestaciones = entero(0, 3); i < amonestaciones; i++) {
+    borradores.push({
+      tipoEvento: TipoEvento.Amonestacion,
+      minuto: entero(5, 90),
+      lado: elegir<Lado>(['local', 'visitante']),
+    });
+  }
+  if (aleatorio() < 0.2) {
+    borradores.push({
+      tipoEvento: TipoEvento.Expulsion,
+      minuto: entero(50, 88),
+      lado: elegir<Lado>(['local', 'visitante']),
+    });
+  }
+  borradores.sort((a, b) => a.minuto - b.minuto);
+  // #endregion
+
+  // #region Asignación de jugadores en orden cronológico
+  const enCancha: Record<Lado, Inscripto[]> = {
+    local: planteles.local.slice(0, TITULARES),
+    visitante: planteles.visitante.slice(0, TITULARES),
+  };
+  const suplentes: Record<Lado, Inscripto[]> = {
+    local: planteles.local.slice(TITULARES),
+    visitante: planteles.visitante.slice(TITULARES),
+  };
+  const jugaron = [...enCancha.local, ...enCancha.visitante].map(
+    (j) => j.inscripcionJugadorId,
+  );
+  const amonestados = new Set<string>();
+  const eventos: EventoGenerado[] = [];
+
+  for (const { tipoEvento, minuto, lado } of borradores) {
+    const enJuego = enCancha[lado];
+    const campo = enJuego.filter((j) => j.dorsal !== DORSAL_ARQUERO);
+    let protagonista: Inscripto | undefined;
+    let entra: Inscripto | undefined;
+
+    if (tipoEvento === TipoEvento.Cambio) {
+      entra = suplentes[lado].shift();
+      if (!entra || campo.length === 0) continue;
+      protagonista = elegir(campo);
+      enCancha[lado] = [...enJuego.filter((j) => j !== protagonista), entra];
+      jugaron.push(entra.inscripcionJugadorId);
+    } else if (tipoEvento === TipoEvento.Amonestacion) {
+      const sinAmarilla = enJuego.filter(
+        (j) => !amonestados.has(j.inscripcionJugadorId),
+      );
+      if (sinAmarilla.length === 0) continue;
+      protagonista = elegir(sinAmarilla);
+      amonestados.add(protagonista.inscripcionJugadorId);
+    } else if (tipoEvento === TipoEvento.Expulsion) {
+      protagonista = elegir(campo.length > 0 ? campo : enJuego);
+      enCancha[lado] = enJuego.filter((j) => j !== protagonista);
+    } else {
+      // Gol o gol en contra: un jugador de campo (si quedara solo el arquero, él).
+      protagonista = elegir(campo.length > 0 ? campo : enJuego);
+    }
+
+    eventos.push({
+      tipoEvento,
+      minuto,
+      inscripcionJugadorId: protagonista.inscripcionJugadorId,
+      inscripcionJugadorEntraId: entra?.inscripcionJugadorId ?? null,
+    });
+  }
+  // #endregion
+
+  return { jugaron, eventos };
+}
+
+// #endregion
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
@@ -188,12 +342,16 @@ async function main(): Promise<void> {
     let numeroJugador = 0;
     // Capitán del primer equipo: se le asocia el usuario de prueba con rol Jugador.
     let capitanPrimerEquipoId = 0;
+    /** Plantel de cada equipo en Apertura, en orden de dorsal (titulares primero). */
+    const planteles = new Map<number, Inscripto[]>();
     for (const equipo of equiposApertura) {
+      const plantel: Inscripto[] = [];
+      planteles.set(equipo.id, plantel);
       const inscripcion = await prisma.inscripcionEquipo.create({
         data: { torneoId: apertura.id, equipoId: equipo.id },
       });
 
-      for (const dorsal of DORSALES.slice(0, JUGADORES_POR_EQUIPO)) {
+      for (const dorsal of DORSALES) {
         numeroJugador++;
         const nombres = NOMBRES[numeroJugador % NOMBRES.length];
         const apellidos = APELLIDOS[(numeroJugador * 5) % APELLIDOS.length];
@@ -207,7 +365,7 @@ async function main(): Promise<void> {
             direccion: 'Rosario, Santa Fe',
           },
         });
-        await prisma.inscripcionJugador.create({
+        const inscripto = await prisma.inscripcionJugador.create({
           data: {
             inscripcionEquipoId: inscripcion.id,
             jugadorId: jugador.id,
@@ -215,6 +373,7 @@ async function main(): Promise<void> {
             capitan: dorsal === DORSAL_CAPITAN,
           },
         });
+        plantel.push({ inscripcionJugadorId: inscripto.id, dorsal });
         if (equipo === equiposApertura[0] && dorsal === DORSAL_CAPITAN) {
           capitanPrimerEquipoId = jugador.id;
         }
@@ -229,6 +388,7 @@ async function main(): Promise<void> {
         (partido) => [partido.localId, partido.visitanteId] as const,
       ),
     );
+    let cantidadEventos = 0;
     for (const [indiceFecha, partidosDeLaFecha] of fixture.entries()) {
       const numeroFecha = indiceFecha + 1;
       const fecha = await prisma.fechaFixture.create({
@@ -265,7 +425,7 @@ async function main(): Promise<void> {
           golesVisitante = Math.floor(aleatorio() * 4);
         }
 
-        await prisma.partido.create({
+        const partido = await prisma.partido.create({
           data: {
             fechaFixtureId: fecha.id,
             estadoPartido,
@@ -277,6 +437,44 @@ async function main(): Promise<void> {
             cantidadGolesVisitante: golesVisitante,
           },
         });
+
+        // Planilla del partido jugado (los WO y los suspendidos no tienen).
+        if (estadoPartido === EstadoPartido.Finalizado) {
+          const planilla = generarPlanilla(
+            {
+              local: planteles.get(localId)!,
+              visitante: planteles.get(visitanteId)!,
+            },
+            golesLocal!,
+            golesVisitante!,
+            aleatorio,
+          );
+          // Ids generados antes de insertar, para relacionar los eventos (como en la API).
+          const idFila = new Map(
+            planilla.jugaron.map((inscripcionId) => [
+              inscripcionId,
+              randomUUID(),
+            ]),
+          );
+          await prisma.partidoJugador.createMany({
+            data: [...idFila].map(([inscripcionJugadorId, id]) => ({
+              id,
+              partidoId: partido.id,
+              inscripcionJugadorId,
+            })),
+          });
+          await prisma.evento.createMany({
+            data: planilla.eventos.map((evento) => ({
+              tipoEvento: evento.tipoEvento,
+              minuto: evento.minuto,
+              partidoJugadorId: idFila.get(evento.inscripcionJugadorId)!,
+              partidoJugadorCambioId: evento.inscripcionJugadorEntraId
+                ? idFila.get(evento.inscripcionJugadorEntraId)!
+                : null,
+            })),
+          });
+          cantidadEventos += planilla.eventos.length;
+        }
       }
     }
     // #endregion
@@ -301,9 +499,17 @@ async function main(): Promise<void> {
     const contrasenias = new ContraseniasService();
     const contraseniaHash = await contrasenias.generarHash(contraseniaPrueba);
     const usuariosPrueba = [
-      { email: 'administrador@ligahub.test', rol: Rol.Administrador, jugadorId: null },
+      {
+        email: 'administrador@ligahub.test',
+        rol: Rol.Administrador,
+        jugadorId: null,
+      },
       { email: 'asistente@ligahub.test', rol: Rol.Asistente, jugadorId: null },
-      { email: 'jugador@ligahub.test', rol: Rol.Jugador, jugadorId: capitanPrimerEquipoId },
+      {
+        email: 'jugador@ligahub.test',
+        rol: Rol.Jugador,
+        jugadorId: capitanPrimerEquipoId,
+      },
     ];
     for (const usuario of usuariosPrueba) {
       await prisma.usuario.create({
@@ -319,7 +525,7 @@ async function main(): Promise<void> {
 
     console.log(
       `Seed completo: ${equipos.length} equipos, ${numeroJugador} jugadores, ` +
-        `torneo ${apertura.id} "Apertura" (en curso, ${fixture.length} fechas), ` +
+        `torneo ${apertura.id} "Apertura" (en curso, ${fixture.length} fechas, ${cantidadEventos} eventos), ` +
         `torneo ${clausura.id} "Clausura" (inscripción) y ${usuariosPrueba.length} usuarios de prueba.`,
     );
   } finally {
