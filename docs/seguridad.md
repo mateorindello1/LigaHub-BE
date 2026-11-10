@@ -73,6 +73,7 @@ Las decisiones marcadas como "a revisar" se tomaron por simplicidad y pueden mej
 | Los roles se leen de la base en cada pedido: un cambio de rol o una baja rigen enseguida, sin esperar a que venza el token | Hecho (S-6) |
 | Permiso por pertenencia: el rol Jugador ve y modifica solo su jugador (403 con cualquier otro id, exista o no) | Hecho (AD-2) |
 | Planteles públicos sin datos personales: el listado de jugadores de un equipo no incluye DNI, email ni teléfono | Hecho (AD-2) |
+| Permiso del Asistente: carga y anula resultados y eventos de los partidos (`PUT` y `DELETE /partidos/:id/resultado`) | Hecho (AD-4) |
 
 ## Pendientes a futuro
 

@@ -1142,7 +1142,7 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 
 ## Etapa 10 — Aprobación directa
 
-**Estado:** En curso (AD-1 a AD-3 hechas)
+**Estado:** En curso (AD-1 a AD-4 hechas)
 
 Subetapas con la misma numeración en los planes del backend y del frontend. Requiere la etapa de seguridad: los endpoints y pantallas nuevos se protegen por rol desde el principio. El orden tiene un motivo:
 - **AD-1 se adelantó:** es un requisito de regularidad.
@@ -1154,7 +1154,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 | AD-1 | Base de datos en la nube (Azure SQL). **También es requisito de regularidad** | Sí | No | Hecha |
 | AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Hecha |
 | AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Hecha |
-| AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Pendiente |
+| AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Hecha |
 | AD-5 | Tests que faltan | Sí | Sí | Pendiente |
 | AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
 
@@ -1487,11 +1487,148 @@ Decisiones:
 
 ### AD-4 — Caso de uso: cargar el resultado de un partido
 
-Usa los partidos que genera el fixture (los dos casos de uso relacionados que pide la aprobación directa).
-- Jugadores que participaron (PartidoJugador) y eventos: gol, gol en contra, amonestación, expulsión y cambio.
-- El resultado se calcula a partir de los goles y el partido pasa a Finalizado. También W.O. y suspendido.
-- La tabla de posiciones se actualiza sola, porque se calcula a partir de los partidos.
-- Rol Asistente o Administrador.
+**Estado:** Hecha (2026-11-10)
+
+Es el segundo caso de uso de la aprobación directa. Usa los partidos que genera el primero (el fixture), así que los dos casos de uso quedan relacionados, como pide la cátedra. Lo hace el Asistente el día del partido, o el Administrador.
+
+#### Endpoints
+
+| Método y ruta | Quién | Qué hace | Respuesta |
+|:--|:--|:--|:-:|
+| `GET /partidos/:id` | Público | Planilla del partido: equipos con sus planteles (y quién jugó), marcador y eventos por minuto | 200 o 404 |
+| `PUT /partidos/:id/resultado` | Asistente o Administrador | Carga el resultado y reemplaza lo que hubiera. Devuelve la planilla | 200 |
+| `DELETE /partidos/:id/resultado` | Asistente o Administrador | Anula el resultado: el partido vuelve a Programado | 204 |
+
+El cuerpo del `PUT` depende de qué pasó:
+
+| `estadoPartido` | Qué lleva | Marcador |
+|:--|:--|:--|
+| 2 (Finalizado) | `jugadores`: inscripciones de los que jugaron; `eventos`: `{ tipoEvento, minuto, inscripcionJugadorId, inscripcionJugadorEntraId? }` | Se calcula de los goles |
+| 3 (W.O.) | `equipoGanadorId`: el equipo que se presentó | 3 a 0 para el ganador |
+| 4 (Suspendido) | Nada | Sin marcador |
+
+Tipos de evento: 1 gol, 2 gol en contra, 3 amonestación, 4 expulsión y 5 cambio. En un cambio, `inscripcionJugadorId` es el que sale e `inscripcionJugadorEntraId` el que entra.
+
+Decisiones sobre el diseño de la API:
+- **`PUT` y no `POST`:** la planilla se envía entera y reemplaza la anterior. Cargar dos veces lo mismo deja el mismo resultado (es idempotente), y así una corrección es otra carga.
+- **El marcador no se envía, se calcula:** no puede quedar un 3 a 1 con dos goles cargados.
+- **Jugadores identificados por su inscripción** (`InscripcionJugador`) y no por `Jugador`: el plantel es del equipo en ese torneo, y la base guarda `PartidoJugador.inscripcionJugadorId`.
+
+#### Reglas de negocio
+
+| Regla | Respuesta |
+|:--|:--|
+| El torneo está finalizado | 409 |
+| Jugado o W.O. de un partido sin día y hora | 409 "Primero hay que programar el día y hora del partido." |
+| Jugado o W.O. antes de la hora del partido | 409 "El partido todavía no empezó..." |
+| Un jugador que no está inscripto en ninguno de los dos equipos | 400 en `jugadores` |
+| Un evento de un jugador que no figura entre los que jugaron | 400 en `eventos.N.inscripcionJugadorId` |
+| Cambio sin jugador que entra, con el mismo jugador, o con uno del otro equipo o que no jugó | 400 en `eventos.N.inscripcionJugadorEntraId` |
+| Un evento que no es cambio con jugador que entra | 400 |
+| W.O. sin ganador o con un equipo que no es del partido | 400 en `equipoGanadorId` |
+| Jugadores o eventos en un W.O. o un suspendido | 400 |
+| Minuto fuera de 0 a 130, tipo de evento inválido o ids repetidos | 400 (DTO) |
+| Anular un partido sin resultado | 409 "El partido no tiene resultado cargado." |
+
+Decisiones:
+- **Un suspendido se puede cargar antes de la hora:** un partido se puede suspender por adelantado, por ejemplo por lluvia.
+- **W.O. 3 a 0:** es la convención habitual y la misma que usa el seed.
+- **Sin reglas de disciplina:** no se controla que un expulsado no tenga eventos posteriores ni que dos amarillas sean una roja. No lo pide el alcance y complicaría la carga.
+- **La tabla de posiciones no se toca:** se calcula a partir de los partidos (etapa 6), así que se actualiza sola al guardar o anular.
+- **Regla de AD-2 con datos reales:** un jugador que jugó un partido ya no se puede dar de baja del plantel. El test de integración lo verifica.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/partidos/tipo-evento.enum.ts` | Nuevo: `TipoEvento` y sus valores para `@IsIn` |
+| `src/modules/partidos/calcular-marcador.ts` | Nuevo: función pura que calcula el marcador; marcador del W.O. |
+| `src/modules/partidos/dto/cargar-resultado.dto.ts` | Nuevo: `CargarResultadoDto` con `EventoDto` anidado |
+| `src/modules/partidos/planilla-partido.ts` | Nuevo: tipos de la respuesta |
+| `src/modules/partidos/partidos.repository.ts` | Planilla, planteles, `guardarResultado` y `anularResultado` en transacción |
+| `src/modules/partidos/resultados.service.ts` | Nuevo: el caso de uso y sus reglas |
+| `src/modules/partidos/partidos.controller.ts`, `partidos.module.ts` | Los 3 endpoints nuevos y el servicio |
+| `src/modules/partidos/calcular-marcador.spec.ts` | Nuevo: 4 tests unitarios |
+| `src/modules/partidos/resultados.service.spec.ts` | Nuevo: 9 tests unitarios |
+| `test/resultados.e2e-spec.ts` | Nuevo: test de integración del caso de uso completo |
+| `vitest.config.e2e.ts` | `fileParallelism: false`: los archivos de integración corren de a uno |
+| `prisma/seed.ts` | Planteles de 9 jugadores y planilla coherente en los partidos jugados (ver "Seed con planillas") |
+
+#### Conceptos
+
+- **Validación anidada:** `@ValidateNested({ each: true })` y `@Type(() => EventoDto)` validan cada evento de la lista con sus propias reglas, y los errores llegan como `eventos.2.minuto`. Es el `RuleForEach(x => x.Eventos).SetValidator(new EventoValidator())` de FluentValidation.
+- **Ids generados antes de insertar:** los eventos apuntan a filas de `PartidoJugador` que se crean en la misma transacción. Como `createMany` no devuelve los ids en SQL Server, se generan con `randomUUID()` antes, igual que las fechas del fixture. En EF Core no hace falta: `SaveChanges` completa las claves de las entidades relacionadas.
+- **Borrar y volver a crear en una transacción:** `guardarResultado` borra los eventos y los jugadores anteriores y crea los nuevos. Es más simple y seguro que comparar qué cambió, y si algo falla no queda una planilla a medias.
+- **Marcador como función pura:** `calcularMarcador` no accede a la base, como `calcularPosiciones` y `generarFixture`, así que se prueba con tests unitarios simples. El frontend tiene una copia para mostrar el marcador mientras se carga; el que vale es el del backend.
+- **"Ahora" como parámetro:** `cargar(id, dto, ahora = new Date())` permite probar la regla "todavía no empezó" sin depender del reloj. Es el `TimeProvider` de .NET 8.
+
+#### Seed con planillas
+
+El seed (`prisma/seed.ts`) carga la planilla de cada partido jugado de Apertura. Así, la planilla, el fixture y la defensa muestran goleadores, tarjetas y cambios reales.
+
+Cambios en los datos de prueba:
+- **Planteles de 9 jugadores por equipo:** los dorsales 1, 2, 4, 5, 8, 9 y 10 son los titulares (fútbol 7) y el 11 y el 14, los suplentes. En total son 54 jugadores (antes, 42). El usuario Jugador sigue asociado al capitán (dorsal 10) de Los Halcones.
+- **Planilla de los 7 partidos finalizados:**
+  - Juegan los 7 titulares de cada equipo y los suplentes que entran.
+  - Los goles suman exactamente el marcador, y alrededor del 15 % son en contra, de un jugador del rival.
+  - Uno o dos cambios por equipo en el segundo tiempo, de 0 a 3 amonestaciones por partido y, a veces, una expulsión.
+- **El W.O. y el suspendido** siguen sin planilla, igual que los partidos programados.
+
+La función `generarPlanilla` arma primero los eventos con su minuto y su equipo, y después los recorre en orden cronológico. Va asignando jugadores que estén en cancha en ese momento, así se cumplen estas reglas:
+- Nadie hace un gol después de salir o de ser expulsado, ni antes de entrar.
+- Nadie recibe dos amarillas.
+- El arquero no hace goles.
+- Un cambio es entre un jugador en cancha y un suplente del mismo equipo.
+
+El generador pseudoaleatorio tiene semilla fija, así que cada ejecución carga exactamente lo mismo. Al consumir más números que antes, los marcadores de los partidos cambiaron respecto del seed anterior. Los `PartidoJugador` y los `Evento` se insertan con ids generados antes (`randomUUID`), como en `guardarResultado`.
+
+Resultado: 50 eventos (13 goles, 1 gol en contra, 12 amonestaciones, 2 expulsiones y 22 cambios).
+
+**Cómo se verificó:**
+- Antes de ejecutar el seed (que borra la base), se contó lo que había en Azure: coincidía exactamente con el seed anterior, sin datos cargados a mano.
+- Después, un script recorrió las 15 planillas por la API y comprobó estas condiciones, sin encontrar problemas:
+  - El marcador coincide con los goles.
+  - Todos los protagonistas jugaron.
+  - Los cambios son válidos y los suplentes que figuran son los que entraron.
+  - Nadie actúa después de salir ni antes de entrar.
+  - No hay dobles amarillas ni goles del arquero.
+  - El W.O., el suspendido y los programados no tienen planilla.
+- La primera versión, con 10 % de goles en contra, no generó ninguno con esta semilla, así que se subió a 15 %.
+- Siguen pasando los 92 tests unitarios y los 22 de integración.
+
+#### Problema encontrado: tests de integración en paralelo
+
+Al agregar este test, falló el de programación de AD-3: "El partido ya se jugó: no se puede reprogramar".
+
+Vitest corre los archivos de test en paralelo. Los dos usan la misma base: mientras el test de resultados tenía el primer partido de la fecha 4 cargado como jugado, el de programación intentaba reprogramar justamente ese partido.
+
+Cada test restaura lo que cambia, pero en paralelo un test ve los cambios temporales del otro. Se configuró `fileParallelism: false` para que los archivos de integración corran de a uno. Tardan más (unos 70 segundos), pero son confiables. Se verificó que el fixture había quedado igual después de la corrida fallida.
+
+#### Cómo se probó
+
+**Unitarios** (en total pasan 92):
+- 4 de `calcularMarcador`: sin eventos, goles y goles en contra, tarjetas y cambios no suman, y el W.O.
+- 9 del servicio:
+  - El marcador se calcula de los goles y se guardan jugadores y eventos.
+  - Jugadores de otro equipo y eventos de quien no jugó.
+  - Las tres reglas del cambio, y que solo un cambio lleva jugador que entra.
+  - W.O. 3 a 0, y sin ganador o con uno ajeno.
+  - Suspendido sin marcador, cargado antes de la hora.
+  - Partido sin programar y partido que todavía no empezó.
+  - Torneo finalizado.
+  - Anular con y sin resultado.
+
+**Integración** (`test/resultados.e2e-spec.ts`, contra Azure; en total pasan 22), sobre el primer partido de la fecha 4 de Apertura:
+- La planilla pública trae los dos planteles.
+- El Jugador recibe 403 y un jugador de otro partido da 400.
+- El Asistente carga 14 jugadores y 6 eventos (incluidos un gol en contra y un cambio); el marcador queda 2 a 2.
+- La tabla suma un partido jugado al local.
+- Dar de baja del plantel a un jugador que jugó da 409.
+- El Administrador lo corrige a W.O. del visitante (0 a 3, sin eventos).
+- El Asistente lo anula: vuelve a Programado y la tabla queda como antes.
+- **Limpieza:** un `finally` anula el resultado si algo falló.
+
+**Swagger:** los 3 endpoints nuevos en el grupo "Partidos".
 
 ### AD-5 — Tests
 
