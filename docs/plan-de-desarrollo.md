@@ -1644,7 +1644,7 @@ Cada test restaura lo que cambia, pero en paralelo un test ve los cambios tempor
 - Se armó la integración continua en GitHub Actions.
 - Se documentó todo en [`docs/tests.md`](tests.md).
 
-> **Ojo con "1 test por integrante":** la cátedra puede mirar quién escribió cada test en el historial de Git. Conviene que Juan escriba y commitee al menos uno con su usuario (por ejemplo, un caso nuevo en `torneos.service.spec.ts`).
+> **"1 test por integrante":** el TP lo hace un solo integrante (Juan Urquiza abandonó el TP), así que alcanza con los tests de Mateo.
 
 #### Tests unitarios nuevos
 
