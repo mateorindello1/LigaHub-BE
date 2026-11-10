@@ -939,6 +939,8 @@ Viene precompilado para cada plataforma: no compila nada al instalarse ni hay qu
 
 La contraseña de los tres es la de `SEED_CONTRASENIA` en el `.env`. Si falta o tiene menos de 12 caracteres, el seed no se ejecuta.
 
+**Un hash por usuario:** al principio el seed calculaba el hash una sola vez y lo reutilizaba para los tres usuarios, así que en la base quedaban idénticos. El login funcionaba igual, pero no es como trabaja la API, donde cada alta genera su propio hash con una sal aleatoria. Se corrigió para generar uno por usuario: con la misma contraseña, los tres hashes quedan distintos. Equivale a llamar a `PasswordHasher.HashPassword` una vez por usuario en ASP.NET Core Identity.
+
 #### Cómo se probó
 
 - Tests unitarios: pasan los 29 (los 18 anteriores más 7 de la configuración y 4 del hash).

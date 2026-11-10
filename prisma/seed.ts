@@ -497,7 +497,6 @@ async function main(): Promise<void> {
     // #region Usuarios de prueba: uno por rol
     // Mismo servicio de hash que usa la API, para que el login los reconozca.
     const contrasenias = new ContraseniasService();
-    const contraseniaHash = await contrasenias.generarHash(contraseniaPrueba);
     const usuariosPrueba = [
       {
         email: 'administrador@ligahub.test',
@@ -512,10 +511,11 @@ async function main(): Promise<void> {
       },
     ];
     for (const usuario of usuariosPrueba) {
+      // Un hash por usuario: cada uno lleva su propia sal, como si se hubieran creado desde la API.
       await prisma.usuario.create({
         data: {
           email: usuario.email,
-          contraseniaHash,
+          contraseniaHash: await contrasenias.generarHash(contraseniaPrueba),
           jugadorId: usuario.jugadorId,
           roles: { create: { rol: usuario.rol } },
         },
