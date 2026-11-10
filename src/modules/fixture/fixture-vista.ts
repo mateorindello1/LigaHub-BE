@@ -8,8 +8,13 @@ export interface PartidoFixture {
   /** Null mientras no se haya jugado. */
   golesLocal: number | null;
   golesVisitante: number | null;
-  /** Null si todavía no se asignó cancha. */
-  cancha: { numero: number; predio: string } | null;
+  /** Null si todavía no se asignó cancha. predio es el nombre; predioId, su id. */
+  cancha: {
+    id: number;
+    numero: number;
+    predioId: number;
+    predio: string;
+  } | null;
 }
 
 /** Una fecha del fixture: respuesta de GET y POST /torneos/:torneoId/fixture. */

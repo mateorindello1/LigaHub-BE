@@ -14,6 +14,9 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { JugadoresModule } from './modules/jugadores/jugadores.module.js';
 import { InscripcionesJugadorModule } from './modules/inscripciones-jugador/inscripciones-jugador.module.js';
+import { PrediosModule } from './modules/predios/predios.module.js';
+import { CanchasModule } from './modules/canchas/canchas.module.js';
+import { PartidosModule } from './modules/partidos/partidos.module.js';
 
 @Module({
   imports: [
@@ -27,6 +30,9 @@ import { InscripcionesJugadorModule } from './modules/inscripciones-jugador/insc
     AuthModule,
     JugadoresModule,
     InscripcionesJugadorModule,
+    PrediosModule,
+    CanchasModule,
+    PartidosModule,
   ],
   controllers: [AppController],
   providers: [

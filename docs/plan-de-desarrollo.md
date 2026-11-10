@@ -1142,7 +1142,7 @@ El costo es una consulta por clave primaria por pedido autenticado, que es despr
 
 ## Etapa 10 — Aprobación directa
 
-**Estado:** En curso (AD-1 y AD-2 hechas)
+**Estado:** En curso (AD-1 a AD-3 hechas)
 
 Subetapas con la misma numeración en los planes del backend y del frontend. Requiere la etapa de seguridad: los endpoints y pantallas nuevos se protegen por rol desde el principio. El orden tiene un motivo:
 - **AD-1 se adelantó:** es un requisito de regularidad.
@@ -1153,7 +1153,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 |:-:|:--|:-:|:-:|:-:|
 | AD-1 | Base de datos en la nube (Azure SQL). **También es requisito de regularidad** | Sí | No | Hecha |
 | AD-2 | CRUD de Jugador e Inscripción de jugador | Sí | Sí | Hecha |
-| AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Pendiente |
+| AD-3 | CRUD de Predio y Cancha, y asignar cancha y horario a los partidos | Sí | Sí | Hecha |
 | AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Pendiente |
 | AD-5 | Tests que faltan | Sí | Sí | Pendiente |
 | AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
@@ -1377,8 +1377,113 @@ El seed no carga `PartidoJugador`. La regla "no dar de baja a quien ya jugó" se
 
 ### AD-3 — Predio, Cancha y programación de partidos
 
-- CRUD de Predio y CRUD dependiente de Cancha.
-- Asignar cancha y día y hora a cada partido del fixture.
+**Estado:** Hecha (2026-11-10)
+
+Incluye tres cosas:
+- El CRUD de Predio.
+- El CRUD dependiente de Cancha.
+- La programación de los partidos del fixture: asignarles cancha y día y hora.
+
+#### Endpoints
+
+| Método y ruta | Quién | Qué hace | Respuesta |
+|:--|:--|:--|:-:|
+| `GET /predios` | Público | Lista los predios por nombre, cada uno con sus canchas | 200 |
+| `GET /predios/:id` | Público | Un predio con sus canchas | 200 o 404 |
+| `POST /predios` | Administrador | Crea un predio | 201 |
+| `PATCH /predios/:id` | Administrador | Modifica nombre o dirección | 200 |
+| `DELETE /predios/:id` | Administrador | Borra un predio sin canchas | 204 |
+| `GET /predios/:predioId/canchas` | Público | Canchas del predio por número | 200 |
+| `GET /predios/:predioId/canchas/:id` | Público | Una cancha | 200 o 404 |
+| `POST /predios/:predioId/canchas` | Administrador | Crea una cancha | 201 |
+| `PATCH /predios/:predioId/canchas/:id` | Administrador | Modifica número o descripción | 200 |
+| `DELETE /predios/:predioId/canchas/:id` | Administrador | Borra una cancha sin partidos | 204 |
+| `PATCH /partidos/:id/programacion` | Administrador | Asigna cancha y día y hora. Solo cambia lo que se envía; `null` lo deja "a confirmar" | 200 |
+
+Decisiones sobre las rutas:
+- **`GET /predios` trae las canchas:** una sola consulta sirve para la grilla de predios y para la lista de canchas del formulario de programación.
+- **La programación tiene su propio recurso (`/partidos/:id/programacion`):** los partidos los crea el fixture; acá solo se cambian la cancha y el horario. En AD-4 se agrega la carga del resultado como otro recurso del partido.
+
+El fixture (`GET /torneos/:id/fixture`) ahora devuelve también el `id` de la cancha y el `predioId`, para que el formulario muestre la cancha actual.
+
+#### Reglas de negocio
+
+| Regla | Respuesta |
+|:--|:--|
+| Nombre de predio repetido (sin importar mayúsculas) | 409 "Ya existe un predio llamado ..." |
+| Borrar un predio con canchas | 409 |
+| Número de cancha repetido en el predio | 409 "El predio ya tiene una cancha número X." |
+| Número de cancha fuera de 1 a 99 | 400 (DTO) |
+| Borrar una cancha con partidos asignados | 409 "... tiene N partidos asignados ..." |
+| Programar un partido finalizado o ganado por WO | 409 "El partido ya se jugó: no se puede reprogramar." |
+| Programar un partido de un torneo finalizado | 409 |
+| La cancha tiene otro partido a menos de una hora | 409 "La cancha X de ... está ocupada: A vs B, el 21/11, 18:00." |
+| Uno de los equipos tiene otro partido a menos de una hora, en cualquier torneo | 409 "Uno de los equipos ya juega a esa hora: ..." |
+| La cancha no existe | 404 |
+
+Decisiones:
+- **Duración de un partido:** `DURACION_PARTIDO_MINUTOS = 60`. Dos partidos que empiezan con menos de una hora de diferencia se superponen. Coincide con el seed, que programa uno por hora en cada cancha.
+- **Los suspendidos no ocupan el horario:** no se jugaron.
+- **Reprogramar un suspendido** con día y hora nuevos lo vuelve a estado Programado.
+- **Horarios de los mensajes en hora argentina:** se formatean con `Intl.DateTimeFormat` y `timeZone: 'America/Argentina/Buenos_Aires'`. Así el mensaje es el mismo aunque la API corra en un servidor con hora UTC (AD-6).
+- **Un partido sin cancha o sin horario es válido:** queda "a confirmar". El fixture se puede generar sin fecha de inicio.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/predios/*` | Nuevo módulo: DTOs, repositorio (predios con canchas), servicio y controller |
+| `src/modules/canchas/*` | Nuevo módulo: CRUD dependiente del predio |
+| `src/modules/partidos/dto/programar-partido.dto.ts` | Nuevo: `fechaHora` (ISO 8601) y `canchaId`, opcionales y anulables |
+| `src/modules/partidos/partidos.repository.ts` | Nuevo: el partido, la cancha, la búsqueda de superposiciones y la actualización |
+| `src/modules/partidos/partidos.service.ts` | Nuevo: el caso de uso de programar, con sus reglas |
+| `src/modules/partidos/partidos.controller.ts`, `partidos.module.ts` | Nuevos |
+| `src/modules/fixture/fixture.repository.ts`, `fixture.service.ts`, `fixture-vista.ts` | La cancha del fixture incluye `id` y `predioId` |
+| `src/app.module.ts` | Importa `PrediosModule`, `CanchasModule` y `PartidosModule` |
+| `src/modules/partidos/partidos.service.spec.ts` | Nuevo: 9 tests unitarios |
+| `src/modules/canchas/canchas.service.spec.ts` | Nuevo: 4 tests unitarios de predios y canchas |
+| `test/predios.e2e-spec.ts` | Nuevo: 2 tests de integración |
+
+#### Conceptos
+
+- **Superposición como rango:** un partido que empieza a la hora `t` choca con los que empiezan entre `t - 60 min` y `t + 60 min`. La consulta es `fechaHoraPartido: { gt: desde, lt: hasta }`, un `WHERE fechaHoraPartido > @desde AND fechaHoraPartido < @hasta`. Con los extremos excluidos, un partido a las 19:00 no choca con uno a las 18:00.
+- **`undefined` y `null` en un PATCH:** `undefined` (el campo no vino) deja el valor como estaba; `null` lo borra. Es la misma convención que `escudoURL` en Equipo y `jugadorId` en Usuario.
+- **Filtro reutilizado:** `buscarConflicto(filtro, desde, hasta, excluirId)` arma la consulta común, y los dos casos le pasan su filtro: la cancha, o los dos equipos como local o visitante. Es como componer `IQueryable` con un `.Where` distinto en .NET.
+- **El servicio de partidos no usa el de canchas:** necesita la cancha con su predio para el mensaje, y la consulta va en su propio repositorio. Así el módulo de partidos no depende del de canchas.
+
+#### Cómo se probó
+
+**Unitarios** (en total pasan 79):
+- 9 de programación:
+  - Asigna cancha y horario.
+  - `null` deja el dato "a confirmar" y lo que no vino no cambia.
+  - La misma cancha media hora después da 409; en otra cancha, pasa.
+  - Una hora después en la misma cancha no se superpone.
+  - Un equipo no juega dos partidos superpuestos, aunque sea en otra cancha.
+  - No se reprograma un partido jugado ni uno de un torneo finalizado.
+  - Un suspendido reprogramado vuelve a Programado, y un suspendido no ocupa el horario.
+  - 404 por partido o cancha inexistentes.
+- 4 de predios y canchas:
+  - Nombre de predio repetido sin importar mayúsculas.
+  - Número de cancha repetido en el predio, pero válido en otro.
+  - 404 al pedir una cancha desde otro predio.
+  - No se borra una cancha con partidos ni un predio con canchas.
+
+**Integración** (`test/predios.e2e-spec.ts`, contra Azure; en total pasan 21):
+- **Predio y cancha:**
+  - El Asistente recibe 403 al crear un predio.
+  - Alta de predio, y 409 por nombre repetido en mayúsculas.
+  - Alta de cancha, 409 por número repetido y 400 por número 0.
+  - 409 al borrar el predio con canchas.
+  - El listado público muestra el predio con su cancha.
+- **Programación sobre la última fecha de Apertura:**
+  - Un partido en la cancha de prueba a las 18:00 responde 200, con la hora en UTC.
+  - Otro partido en la misma cancha a las 18:30 da 409 "está ocupada".
+  - Un partido de la fecha anterior con un equipo en común a las 18:30 da 409 "ya juega a esa hora".
+  - El segundo partido a las 19:00 en esa cancha responde 200.
+  - 409 al programar un partido jugado de la fecha 1, y 403 como Asistente.
+  - 409 al borrar la cancha usada.
+- **Limpieza:** en un `finally`, los partidos vuelven a su horario y su cancha originales. Antes y después de los tests se borran los predios "Prueba e2e". Se verificó que el fixture quedó igual y que solo queda el predio del seed.
 
 ### AD-4 — Caso de uso: cargar el resultado de un partido
 

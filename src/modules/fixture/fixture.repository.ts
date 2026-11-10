@@ -23,7 +23,11 @@ const CAMPOS_FECHA = {
       equipoLocal: { select: { id: true, nombre: true } },
       equipoVisitante: { select: { id: true, nombre: true } },
       cancha: {
-        select: { numero: true, predio: { select: { nombre: true } } },
+        select: {
+          id: true,
+          numero: true,
+          predio: { select: { id: true, nombre: true } },
+        },
       },
     },
     orderBy: { fechaHoraPartido: 'asc' },

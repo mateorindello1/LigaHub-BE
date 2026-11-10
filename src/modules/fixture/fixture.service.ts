@@ -127,7 +127,9 @@ export class FixtureService {
         golesVisitante: partido.cantidadGolesVisitante,
         cancha: partido.cancha
           ? {
+              id: partido.cancha.id,
               numero: partido.cancha.numero,
+              predioId: partido.cancha.predio.id,
               predio: partido.cancha.predio.nombre,
             }
           : null,
