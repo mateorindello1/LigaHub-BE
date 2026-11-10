@@ -37,6 +37,7 @@ describe('AuthService', () => {
       id: 1,
       email: 'admin@ligahub.test',
       fotoPerfilURL: null,
+      jugador: null,
       jugadorId: null,
       roles: [Rol.Administrador],
       contraseniaHash: await contrasenias.generarHash('contraseña-correcta'),

@@ -19,7 +19,7 @@ Como referencia, cada concepto se compara con su equivalente en .NET.
 |  6  | [Listado con filtro y detalle](#etapa-6--listado-con-filtro-y-detalle)                                            |   Hecha   |
 |  7  | [Caso de uso: generar el fixture](#etapa-7--caso-de-uso-generar-el-fixture)                                       |   Hecha   |
 |  8  | [Documentación para la entrega](#etapa-8--documentación-para-la-entrega)                                          | En curso  |
-|  9  | [Seguridad: autenticación y autorización (S-1 a S-6)](#etapa-9--seguridad-autenticación-y-autorización) | En curso |
+|  9  | [Seguridad: autenticación y autorización (S-1 a S-6)](#etapa-9--seguridad-autenticación-y-autorización) | Hecha |
 | 10  | [Aprobación directa (AD-1 a AD-6)](#etapa-10--aprobación-directa) | En curso |
 
 ---
@@ -855,7 +855,7 @@ El segundo comando **rechaza** el script de instalación de `@scarf/scarf`, un p
 
 ## Etapa 9 — Seguridad: autenticación y autorización
 
-**Estado:** En curso (S-1 a S-5 hechas; falta S-6)
+**Estado:** Hecha (2026-11-10)
 
 Login y permisos por rol. La cátedra los pide para la aprobación directa, pero se hacen como etapa propia y **antes** del resto de la aprobación directa: así los endpoints y pantallas nuevos (jugadores, canchas, carga de resultados) nacen protegidos y no hay que volver sobre ellos. Los decoradores `@Publico()` y `@Roles(...)` ya están en todos los endpoints desde la etapa 4; esta etapa los activa.
 
@@ -868,7 +868,7 @@ El diseño (mecanismo, roles, permisos y medidas) está decidido en [seguridad.m
 | S-3 | Protección de la API: guard global, guard de roles, mensajes 401 y 403, Swagger con token | Sí | No | Hecha |
 | S-4 | Login, sesión y envío del token desde el cliente de API | No | Sí | Hecha |
 | S-5 | Pantallas, menú y acciones según el rol; sesión vencida (401) y sin permiso (403) | No | Sí | Hecha |
-| S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Pendiente |
+| S-6 | Gestión de usuarios y roles por el administrador | Sí | Sí | Hecha |
 
 ### S-1 — Usuarios y contraseñas
 
@@ -1039,7 +1039,7 @@ Los decoradores `@Publico()` y `@Roles(...)` estaban en todos los endpoints desd
 #### Conceptos
 
 - **`APP_GUARD`:** registrar un guard con este token lo hace global, para todos los endpoints de la aplicación. Equivale a `options.Filters.Add(new AuthorizeFilter())` o a una política de autorización por defecto en ASP.NET Core. Se registra en el `AuthModule` (y no en `main.ts` con `app.useGlobalGuards`) porque así el guard puede recibir dependencias por inyección (`JwtService`, `Reflector`).
-- **Orden de los guards:** se ejecutan en el orden en que se registran. Primero `AutenticacionGuard` verifica el token y deja el usuario en el pedido; después `RolesGuard` usa ese usuario. El `ThrottlerGuard` del login es local (`@UseGuards`) y corre después de los globales.
+- **Orden de los guards:** se ejecutan en el orden en que se registran. Primero `AutenticacionGuard` verifica el token y deja el usuario en el pedido; después `RolesGuard` usa ese usuario. Desde S-6, los roles de ese usuario salen de la base y no del token. El `ThrottlerGuard` del login es local (`@UseGuards`) y corre después de los globales.
 - **Cerrado por defecto:** un endpoint nuevo sin decorador exige sesión. Si alguien se olvida de declarar el permiso, queda cerrado, no abierto.
 - **`Reflector.getAllAndOverride`:** lee los metadatos que dejan `@Publico()` y `@Roles(...)`, primero en el método y si no en el controller. Es la forma en que los guards "ven" los atributos, como `IAuthorizationRequirement` leyendo `[Authorize]`.
 - **401 y 403:** 401 (no autenticado) es "no sé quién sos": falta el token, está vencido o es inválido. 403 (sin permiso) es "sé quién sos, pero tu rol no alcanza". El frontend los trata distinto: el 401 lleva al login y el 403 muestra un mensaje.
@@ -1061,8 +1061,84 @@ Los decoradores `@Publico()` y `@Roles(...)` estaban en todos los endpoints desd
 
 ### S-6 — Gestión de usuarios (backend)
 
-- CRUD de usuarios y asignación de roles, solo para el Administrador. Cambio de contraseña.
-- Un usuario no puede quitarse a sí mismo el rol de Administrador (para no dejar el sistema sin administradores).
+**Estado:** Hecha (2026-11-10)
+
+CRUD de usuarios para el Administrador: alta con contraseña y roles, modificación de email, roles y jugador asociado, cambio de contraseña y baja. Además, un listado de jugadores para elegir cuál se asocia a un usuario con rol Jugador.
+
+#### Endpoints
+
+Todos con `@Roles(Rol.Administrador)` a nivel de controller.
+
+| Método y ruta | Qué hace | Respuesta |
+|:--|:--|:-:|
+| `GET /usuarios` | Lista los usuarios, por email, con sus roles y su jugador asociado | 200 |
+| `GET /usuarios/:id` | Un usuario | 200 o 404 |
+| `POST /usuarios` | Crea un usuario con contraseña y roles | 201 |
+| `PATCH /usuarios/:id` | Modifica email, roles o jugador asociado (`jugadorId: null` lo quita) | 200 |
+| `PATCH /usuarios/:id/contrasenia` | Reemplaza la contraseña | 204 |
+| `DELETE /usuarios/:id` | Borra el usuario y sus roles | 204 |
+| `GET /jugadores` | Lista los jugadores (id, DNI, nombre) con el usuario asociado, si lo tienen | 200 |
+
+Nunca se devuelve la contraseña ni su hash: el repositorio selecciona solo los campos públicos.
+
+#### Reglas de negocio
+
+| Regla | Respuesta |
+|:--|:--|
+| Email repetido (sin importar mayúsculas) | 409 "Ya existe un usuario con el email ..." |
+| Rol Jugador sin jugador asociado | 400 en el campo `jugadorId` |
+| Jugador asociado sin el rol Jugador | 400 en el campo `jugadorId` |
+| El jugador no existe | 404 "No existe el jugador X." |
+| El jugador ya tiene otro usuario | 409 "Ese jugador ya tiene un usuario asociado." |
+| El administrador se quita su propio rol de Administrador | 409: el sistema podría quedar sin administradores |
+| El administrador borra su propio usuario | 409 "No podés borrar tu propio usuario." |
+| Contraseña de menos de 12 caracteres | 400 (DTO) |
+
+Al modificar, si se quita el rol Jugador y no se envía `jugadorId`, el jugador se desasocia solo.
+
+#### Cambio en el guard de autenticación
+
+`AutenticacionGuard` ahora busca el usuario en la base en cada pedido y toma los roles de ahí, no del token. Antes, un cambio de rol o una baja recién se notaban cuando vencía el token (hasta 8 horas). Ahora:
+
+- Un cambio de rol rige desde el pedido siguiente, con el mismo token.
+- El token de un usuario borrado responde 401 "El usuario de la sesión ya no existe. Iniciá sesión de nuevo.".
+
+El costo es una consulta por clave primaria por pedido autenticado, que es despreciable para esta aplicación. Es lo que hace ASP.NET Core Identity con `SecurityStampValidator`, que revalida la cookie contra la base.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/usuarios/usuario.ts` | Tipos `UsuarioConRoles` (con `jugador`), `UsuarioConCredenciales` y `DatosUsuario` |
+| `src/modules/usuarios/usuarios.repository.ts` | Consultas (`obtenerTodos`, `existeConEmail`, `jugadorTieneUsuario`, `existeJugador`) y escrituras (`crear`, `modificar` y `borrar` en transacción, `cambiarContrasenia`) |
+| `src/modules/usuarios/usuarios.service.ts` | Nuevo: casos de uso y reglas de negocio |
+| `src/modules/usuarios/usuarios.controller.ts` | Nuevo: los 6 endpoints de `/usuarios` |
+| `src/modules/usuarios/dto/crear-usuario.dto.ts`, `modificar-usuario.dto.ts`, `cambiar-contrasenia.dto.ts` | Nuevos: validación de entrada |
+| `src/modules/usuarios/usuarios.module.ts` | Registra controller y servicio |
+| `src/modules/jugadores/*` | Nuevo módulo: `GET /jugadores` (el CRUD completo de jugadores es AD-2) |
+| `src/modules/auth/autenticacion.guard.ts` | Lee el usuario y sus roles de la base en cada pedido |
+| `src/app.module.ts` | Importa `JugadoresModule` |
+| `src/modules/usuarios/usuarios.service.spec.ts` | Nuevo: tests unitarios del servicio con un repositorio en memoria |
+| `test/usuarios.e2e-spec.ts` | Nuevo: test de integración del ciclo completo |
+
+#### Conceptos
+
+- **`@IsIn` y no `@IsEnum` para los roles:** un `enum` numérico de TypeScript también contiene los nombres (`Rol[1] === 'Administrador'`), así que `@IsEnum` aceptaría `"Administrador"` además de `1`. `VALORES_ROL` filtra solo los números.
+- **Reemplazo de roles en transacción:** `modificar` borra los `UsuarioRol` y crea los nuevos dentro de `$transaction`, como un `SaveChanges` que agrupa el `RemoveRange` y el `AddRange`. Si algo falla, no queda un usuario sin roles.
+- **`@UsuarioActual()`:** el controller recibe el id de quien hace el pedido para aplicar las reglas sobre el propio usuario. Es el `User.FindFirst(ClaimTypes.NameIdentifier)` de un controller de ASP.NET Core.
+- **Validación en dos niveles**, como en el trabajo: los DTO validan forma y largo (FluentValidation); el servicio valida lo que necesita la base o el contexto (unicidad, existencia, reglas sobre el propio usuario), como el `ValidarCreacion` de la entidad.
+- **Repositorio falso en el test unitario:** `RepositorioEnMemoria` implementa solo los métodos que usa el servicio. Equivale a un fake hecho a mano en lugar de un mock de Moq.
+
+#### Cómo se probó
+
+- **Unitarios** (`usuarios.service.spec.ts`, 10 casos): el alta guarda el hash Argon2id y normaliza el email; 409 por email repetido; los dos 400 de `jugadorId`; 404 y 409 del jugador; el administrador no puede quitarse su rol pero sí quitárselo a otro; quitar el rol Jugador desasocia el jugador; el cambio de contraseña reemplaza el hash; no se puede borrar el propio usuario. En total pasan 52.
+- **Integración** (`test/usuarios.e2e-spec.ts`, contra Azure):
+  - Solo el Administrador lista usuarios y jugadores; el Jugador recibe 403. El listado no contiene hashes.
+  - 400 en `jugadorId` y 409 por email repetido; 409 al borrarse a sí mismo.
+  - Ciclo completo: alta, login del usuario nuevo, cambio de rol que rige con el mismo token, cambio de contraseña (la anterior deja de servir) y baja (el token del usuario borrado responde 401).
+
+  En total pasan 16 de integración.
+- **Swagger:** los 7 endpoints nuevos aparecen con candado y respuestas 401 y 403.
 
 ## Etapa 10 — Aprobación directa
 

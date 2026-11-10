@@ -1,13 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ContraseniasService } from './contrasenias.service.js';
+import { UsuariosController } from './usuarios.controller.js';
 import { UsuariosRepository } from './usuarios.repository.js';
+import { UsuariosService } from './usuarios.service.js';
 
 /**
- * Módulo de usuarios. Por ahora ofrece el acceso a datos y el hash de contraseñas, que usa la
- * autenticación (S-2). Los endpoints de gestión de usuarios llegan en S-6.
+ * Módulo de usuarios: gestión de usuarios y roles (solo Administrador). Exporta el repositorio
+ * y el servicio de contraseñas, que usa la autenticación.
  */
 @Module({
-  providers: [UsuariosRepository, ContraseniasService],
+  controllers: [UsuariosController],
+  providers: [UsuariosService, UsuariosRepository, ContraseniasService],
   exports: [UsuariosRepository, ContraseniasService],
 })
 export class UsuariosModule {}
