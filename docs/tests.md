@@ -31,14 +31,16 @@ Para los de integración:
 
 ## Qué cubren
 
-### Unitarios (162 tests en 19 archivos)
+### Unitarios (178 tests en 21 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
 | `fixture/generar-fixture.spec.ts` | Método del círculo: fechas y cruces con cantidad par e impar de equipos, localía repartida, ida y vuelta |
 | `posiciones/calcular-posiciones.spec.ts` | Puntos, orden de la tabla y desempates |
+| `goleadores/calcular-goleadores.spec.ts` | Suma de goles y partidos jugados, sin los que no hicieron goles, posición compartida y orden ante empates |
+| `suspensiones/calcular-suspensiones.spec.ts` | Expulsión: una fecha, pendiente o cumplida (también por W.O.); partido suspendido que no cuenta; se cumple en los partidos del propio equipo; 5 amarillas (y la cuenta vuelve a empezar); amarillas del partido de la expulsión que no se acumulan; dos sanciones seguidas; equipo sin partidos restantes; orden; jugadores suspendidos en un partido |
 | `partidos/calcular-marcador.spec.ts` | Marcador a partir de goles y goles en contra; W.O. 3 a 0 |
-| `partidos/resultados.service.spec.ts` | Caso de uso "cargar el resultado": jugadores de los dos equipos, eventos de quien jugó, reglas del cambio, W.O., suspendido, horario, anulación |
+| `partidos/resultados.service.spec.ts` | Caso de uso "cargar el resultado": jugadores de los dos equipos, eventos de quien jugó, reglas del cambio, W.O., suspendido, horario, anulación; un jugador que cumple una suspensión no se puede anotar (409) y la planilla lo marca |
 | `partidos/partidos.service.spec.ts` | Programación: superposición de canchas y de equipos, partidos jugados, suspendidos |
 | `torneos/torneos.service.spec.ts` | Estado inicial, modificación parcial, 404, borrado con datos asociados |
 | `equipos/equipos.service.spec.ts` | Nombre único sin importar mayúsculas, escudo opcional, borrado con datos asociados |
@@ -55,7 +57,7 @@ Para los de integración:
 | `config/configuracion.spec.ts` | Validación del `.env` al arrancar, valores por defecto de la sesión y conversión de duraciones |
 | `app.controller.spec.ts` | Endpoint raíz (el que genera Nest al crear el proyecto) |
 
-### Integración (31 tests en 8 archivos)
+### Integración (33 tests en 8 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
@@ -65,7 +67,7 @@ Para los de integración:
 | `usuarios.e2e-spec.ts` | Ciclo de un usuario: alta, cambio de rol que rige con el mismo token, cambio de contraseña y baja |
 | `jugadores.e2e-spec.ts` | Permiso por pertenencia del Jugador; alta, inscripción con capitanía y reglas del plantel |
 | `predios.e2e-spec.ts` | Predio y cancha; programación sin superponer canchas ni equipos |
-| `resultados.e2e-spec.ts` | Caso de uso "cargar el resultado": carga, corrección a W.O. y anulación; la tabla de posiciones se actualiza sola |
+| `resultados.e2e-spec.ts` | Caso de uso "cargar el resultado": carga, corrección a W.O. y anulación; la tabla de posiciones se actualiza sola. Suspensiones: una expulsión en la fecha 4 aparece como sanción pendiente, la planilla de la fecha 5 marca al jugador y cargarlo responde 409. Goleadores y suspensiones sin sesión, y 404 con un torneo inexistente |
 | `app.e2e-spec.ts` | La API arranca y responde en `/` (el que genera Nest al crear el proyecto) |
 
 ## Evidencia de ejecución
@@ -82,7 +84,18 @@ El reporte de cobertura queda como artefacto de cada ejecución. El resultado de
 
 Los tests de integración no corren en GitHub: la base de Azure solo acepta conexiones de las IP habilitadas en su firewall. Se corren en local.
 
-### Última ejecución local (2026-11-10)
+### Última ejecución local (2026-11-11)
+
+**Después de goleadores y suspensiones** (2026-11-11), sin cobertura:
+
+```
+pnpm test        →  Test Files  21 passed (21)  ·  Tests  178 passed (178)
+pnpm test:e2e    →  Test Files  2 failed | 6 passed (8)  ·  Tests  2 failed | 31 passed (33)
+```
+
+Los dos que fallan no tienen que ver con este cambio:
+- `fotos-perfil.e2e-spec.ts`: Azurite no estaba levantado (`ECONNREFUSED 127.0.0.1:10000`). Con `pnpm storage:local`, pasa.
+- "solo el Administrador lista usuarios y jugadores": el mismo caso de abajo (`jugador2@ligahub.test`).
 
 **Después de las fotos de perfil** (2026-11-11), sin cobertura. La suite de integración completa es anterior a la foto desde una dirección; `fotos-perfil.e2e-spec.ts` se corrió después con sus 5 tests y pasaron:
 

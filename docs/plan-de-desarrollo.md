@@ -1255,6 +1255,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 | AD-5 | Tests que faltan | Sí | Sí | Hecha |
 | AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
 | Extra | Fotos de perfil en Azure Blob Storage (Azurite en desarrollo): archivo, pegar o dirección de internet | Sí | Sí | Hecha |
+| Voluntario | Goleadores y suspensiones (alcance adicional voluntario de la proposal) | Sí | Sí | Hecha |
 
 ### AD-1 — Base de datos en la nube
 
@@ -1938,6 +1939,74 @@ Se usa `node:http`/`node:https` y no `fetch`, porque permiten controlar el `look
     - rechaza una página HTML, un 404 y una imagen de 3 MB.
 - **Integración** (`fotos-perfil.e2e-spec.ts`, ahora 5 tests): una dirección hacia Azurite (`127.0.0.1:10000`) responde 400 "no está permitida"; una dirección inválida, 400 en el campo `url`.
 - **A mano:** con la dirección del logo de Google, la API la descargó, la recortó y la barra la mostró.
+
+### Voluntario — Goleadores y suspensiones
+
+**Estado:** Hecha (2026-11-11)
+
+Dos ítems del alcance adicional voluntario de la proposal: el **listado de goleadores** filtrado por torneo y el caso de uso **calcular suspensiones a partir de las tarjetas** de cada partido. Los dos se calculan a partir de las planillas que carga el caso de uso de AD-4; no se guardan, igual que la tabla de posiciones. Así una corrección en una planilla los actualiza solos.
+
+#### Endpoints
+
+| Método y ruta | Acceso | Qué hace |
+|:--|:--|:--|
+| `GET /torneos/:torneoId/goleadores` | Público | Jugadores con al menos un gol en los partidos jugados: posición, jugador, equipo, goles y partidos jugados |
+| `GET /torneos/:torneoId/suspensiones` | Público | Sanciones (motivo, fecha en que se recibió, partidos en que se cumple y si está cumplida) y tarjetas de cada jugador |
+
+Además, la planilla (`GET /partidos/:id`) marca a cada jugador con `suspendido`, y `PUT /partidos/:id/resultado` responde **409** si anota a un jugador que cumple una suspensión en ese partido.
+
+#### Reglas de las suspensiones
+
+| Regla | Detalle |
+|:--|:--|
+| Expulsión | Suspende 1 fecha (`FECHAS_POR_EXPULSION`) |
+| Amarillas | Cada 5 acumuladas en el torneo (`AMONESTACIONES_PARA_SUSPENSION`) suspenden 1 fecha, y la cuenta vuelve a empezar |
+| Amarillas del partido de la expulsión | No se acumulan: la expulsión ya las sanciona (por ejemplo, la doble amarilla) |
+| Dónde se cumple | En los próximos partidos de **su equipo**, por número de fecha, desde la fecha siguiente. Si el equipo queda libre en una fecha, se cumple en la siguiente que juegue |
+| Partidos suspendidos | No cuentan: no se jugaron |
+| Dos sanciones | Se cumplen una después de la otra |
+| Cumplida | Cuando los partidos en que se cumple ya se jugaron (o se ganaron por W.O.) |
+| Sin partidos restantes | La sanción queda pendiente, sin partido asignado |
+
+Las reglas son constantes de `calcular-suspensiones.ts`, para cambiarlas en un solo lugar si la liga usa otras (por ejemplo, 3 amarillas).
+
+#### Diseño
+
+- **Funciones puras, como `calcularPosiciones`:** `calcularGoleadores` y `calcularSuspensiones` reciben los datos ya consultados y no tocan la base. Tienen tests unitarios con casos armados a mano.
+- **Goleadores en una sola consulta:** `partidoJugador.findMany` con un `_count` filtrado (`eventos: { where: { tipoEvento: Gol } }`). Prisma lo resuelve con un `COUNT` en la misma consulta. Es el `Count(e => e.TipoEvento == Gol)` dentro de un `Select` de EF Core. Los goles en contra no se suman al jugador.
+- **Posición compartida:** a igual cantidad de goles, la misma posición (1, 2, 2, 4). El orden dentro del empate es por menos partidos jugados y después por apellido.
+- **Suspensiones dentro de la carga del resultado:** `SuspensionesModule` exporta su servicio y `PartidosModule` lo importa. `ResultadosService` lo usa para validar la planilla y para marcar a los suspendidos. Al validar, el partido que se carga cuenta como jugable aunque figure como suspendido.
+- **Por qué validar en el backend:** el frontend deshabilita la casilla del suspendido, pero la regla la aplica la API, como todas las demás.
+
+#### Conceptos
+
+- **`_count` filtrado de Prisma:** cuenta registros relacionados que cumplen una condición sin traerlos. Evita traer todos los eventos para contarlos en memoria.
+- **Módulo que exporta un servicio:** `exports: [SuspensionesService]` en un módulo y `imports: [SuspensionesModule]` en otro. Es registrar el servicio en el contenedor de DI de un proyecto y referenciarlo desde otro.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/goleadores/calcular-goleadores.ts` | Nuevo: tabla de goleadores (función pura) |
+| `src/modules/goleadores/goleadores.repository.ts`, `.service.ts`, `.controller.ts`, `.module.ts` | Nuevos: consulta, 404 si el torneo no existe, endpoint público |
+| `src/modules/suspensiones/calcular-suspensiones.ts` | Nuevo: reglas de las suspensiones (función pura) y `suspendidosEnPartido` |
+| `src/modules/suspensiones/suspensiones.repository.ts`, `.service.ts`, `.controller.ts`, `.module.ts` | Nuevos: partidos y tarjetas del torneo, `suspendidosEn(torneoId, partidoId)` para la carga del resultado, endpoint público |
+| `src/modules/partidos/resultados.service.ts` | Rechaza a un suspendido (409) y marca `suspendido` en la planilla |
+| `src/modules/partidos/planilla-partido.ts` | Campo `suspendido` en cada jugador del plantel |
+| `src/modules/partidos/partidos.module.ts` | Importa `SuspensionesModule` |
+| `src/app.module.ts` | Registra `GoleadoresModule` y `SuspensionesModule` |
+| `prisma/seed.ts` | Un expulsado no figura en la planilla del partido siguiente de su equipo |
+| `src/modules/goleadores/calcular-goleadores.spec.ts`, `src/modules/suspensiones/calcular-suspensiones.spec.ts` | Nuevos: tests unitarios |
+| `src/modules/partidos/resultados.service.spec.ts` | Casos del suspendido |
+| `test/resultados.e2e-spec.ts` | Anota solo a los disponibles; nuevo test de la suspensión de punta a punta y de los dos listados |
+
+#### Cómo probarlo
+
+1. `GET /torneos/1/goleadores` y `GET /torneos/1/suspensiones` en Swagger, sin sesión.
+2. Como Asistente, cargar una expulsión en un partido y abrir la planilla del partido siguiente de ese equipo: el jugador figura como suspendido y no se puede anotar.
+3. `pnpm test` y, solo el de integración de resultados, `pnpm exec vitest run --config ./vitest.config.e2e.ts test/resultados.e2e-spec.ts`.
+
+> **Datos de la base anteriores a este cambio:** el seed viejo podía anotar a un expulsado en la fecha siguiente (en la base actual, Fernández jugó la fecha 2 después de su expulsión en la fecha 1). La planilla lo muestra suspendido y marcado como que jugó; para volver a guardarla hay que sacarlo. El seed nuevo ya no genera ese caso.
 
 ### AD-6 — Ambientes y deploy
 

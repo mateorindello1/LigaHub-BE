@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { EstadoTorneo } from '../torneos/estado-torneo.enum.js';
 import type { CargarResultadoDto } from './dto/cargar-resultado.dto.js';
 import { EstadoPartido } from './estado-partido.enum.js';
+import type { SuspensionesService } from '../suspensiones/suspensiones.service.js';
 import type {
   DatosResultado,
   JugadorDelPlantel,
@@ -87,15 +88,64 @@ const jugado = (
   eventos,
 });
 
+/** Suspensiones falsas: los jugadores de "suspendidos" no pueden jugar el partido. */
+class SuspensionesFalsas {
+  suspendidos = new Set<string>();
+  suspendidosEn(): Promise<Set<string>> {
+    return Promise.resolve(this.suspendidos);
+  }
+}
+
 describe('ResultadosService', () => {
   let repositorio: RepositorioEnMemoria;
+  let suspensiones: SuspensionesFalsas;
   let servicio: ResultadosService;
 
   beforeEach(() => {
     repositorio = new RepositorioEnMemoria();
+    suspensiones = new SuspensionesFalsas();
     servicio = new ResultadosService(
       repositorio as unknown as PartidosRepository,
+      suspensiones as unknown as SuspensionesService,
     );
+  });
+
+  it('rechaza un jugador que cumple una suspensión en el partido (409) y lo marca en la planilla', async () => {
+    // Arrange: V1 está suspendido para este partido.
+    suspensiones.suspendidos.add(V1);
+
+    // Act
+    const carga = servicio.cargar('P', jugado(), DESPUES);
+    const planilla = await servicio.obtenerPlanilla('P');
+
+    // Assert
+    await expect(carga).rejects.toThrow(ConflictException);
+    await expect(carga).rejects.toThrow('3, Jugador (3)');
+    expect(repositorio.guardado).toBeNull();
+    const v1 = planilla.visitante.plantel.find(
+      (j) => j.inscripcionJugadorId === V1,
+    );
+    expect(v1?.suspendido).toBe(true);
+    expect(planilla.local.plantel.every((j) => !j.suspendido)).toBe(true);
+  });
+
+  it('acepta la planilla si el suspendido no figura entre los que jugaron', async () => {
+    // Arrange
+    suspensiones.suspendidos.add(V1);
+
+    // Act
+    await servicio.cargar(
+      'P',
+      {
+        estadoPartido: EstadoPartido.Finalizado,
+        jugadores: [L1, L2, V2],
+        eventos: [],
+      },
+      DESPUES,
+    );
+
+    // Assert
+    expect(repositorio.guardado?.jugadores).toEqual([L1, L2, V2]);
   });
 
   it('calcula el marcador a partir de los goles y guarda jugadores y eventos', async () => {

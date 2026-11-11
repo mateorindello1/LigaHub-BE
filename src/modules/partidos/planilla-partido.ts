@@ -8,6 +8,8 @@ export interface JugadorPlanilla {
   capitan: boolean;
   /** Figura entre los que participaron del partido. */
   jugo: boolean;
+  /** Cumple una suspensión en este partido: no puede jugarlo. */
+  suspendido: boolean;
 }
 
 /** Uno de los dos equipos, con su plantel en el torneo. */

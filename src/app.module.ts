@@ -17,6 +17,8 @@ import { InscripcionesJugadorModule } from './modules/inscripciones-jugador/insc
 import { PrediosModule } from './modules/predios/predios.module.js';
 import { CanchasModule } from './modules/canchas/canchas.module.js';
 import { PartidosModule } from './modules/partidos/partidos.module.js';
+import { GoleadoresModule } from './modules/goleadores/goleadores.module.js';
+import { SuspensionesModule } from './modules/suspensiones/suspensiones.module.js';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { PartidosModule } from './modules/partidos/partidos.module.js';
     PrediosModule,
     CanchasModule,
     PartidosModule,
+    GoleadoresModule,
+    SuspensionesModule,
   ],
   controllers: [AppController],
   providers: [

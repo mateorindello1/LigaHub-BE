@@ -412,6 +412,18 @@ async function main(): Promise<void> {
       ),
     );
     let cantidadEventos = 0;
+    // Fechas de suspensión que le quedan a cada expulsado (por inscripción). Se respeta la regla
+    // de la API: un expulsado no juega el partido siguiente de su equipo (ver calcularSuspensiones).
+    // Con 3 fechas jugadas y una amarilla por jugador y partido, nadie llega a 5 amarillas.
+    const fechasSuspension = new Map<string, number>();
+    /** Plantel del equipo sin los suspendidos, que además cumplen una fecha. */
+    const plantelDisponible = (equipoId: number): Inscripto[] =>
+      planteles.get(equipoId)!.filter((j) => {
+        const pendientes = fechasSuspension.get(j.inscripcionJugadorId) ?? 0;
+        if (pendientes === 0) return true;
+        fechasSuspension.set(j.inscripcionJugadorId, pendientes - 1);
+        return false;
+      });
     for (const [indiceFecha, partidosDeLaFecha] of fixture.entries()) {
       const numeroFecha = indiceFecha + 1;
       const fecha = await prisma.fechaFixture.create({
@@ -461,13 +473,19 @@ async function main(): Promise<void> {
           },
         });
 
+        // Los suspendidos cumplen la fecha en cualquier partido que no se haya suspendido.
+        const disponibles =
+          estadoPartido === EstadoPartido.Suspendido
+            ? null
+            : {
+                local: plantelDisponible(localId),
+                visitante: plantelDisponible(visitanteId),
+              };
+
         // Planilla del partido jugado (los WO y los suspendidos no tienen).
-        if (estadoPartido === EstadoPartido.Finalizado) {
+        if (estadoPartido === EstadoPartido.Finalizado && disponibles) {
           const planilla = generarPlanilla(
-            {
-              local: planteles.get(localId)!,
-              visitante: planteles.get(visitanteId)!,
-            },
+            disponibles,
             golesLocal!,
             golesVisitante!,
             aleatorio,
@@ -497,6 +515,11 @@ async function main(): Promise<void> {
             })),
           });
           cantidadEventos += planilla.eventos.length;
+          for (const evento of planilla.eventos) {
+            if (evento.tipoEvento === TipoEvento.Expulsion) {
+              fechasSuspension.set(evento.inscripcionJugadorId, 1);
+            }
+          }
         }
       }
     }

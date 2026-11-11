@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { SuspensionesService } from '../suspensiones/suspensiones.service.js';
 import { EstadoTorneo } from '../torneos/estado-torneo.enum.js';
 import {
   calcularMarcador,
@@ -37,6 +38,8 @@ import { TipoEvento } from './tipo-evento.enum.js';
  * - Jugado: los jugadores tienen que estar inscriptos en uno de los dos equipos; los eventos
  *   son de jugadores que jugaron; un cambio es entre dos jugadores distintos del mismo equipo.
  *   El marcador se calcula de los goles: no se envía.
+ * - Jugado: un jugador que cumple una suspensión en este partido no puede figurar (409). Las
+ *   suspensiones salen de las tarjetas de los partidos anteriores (ver calcularSuspensiones).
  * - W.O.: se indica el equipo que se presentó, que gana 3 a 0. Sin jugadores ni eventos.
  * - Suspendido: sin jugadores, eventos ni marcador.
  * - Cargar de nuevo reemplaza lo anterior: sirve para corregir.
@@ -45,7 +48,10 @@ import { TipoEvento } from './tipo-evento.enum.js';
  */
 @Injectable()
 export class ResultadosService {
-  constructor(private readonly partidosRepository: PartidosRepository) {}
+  constructor(
+    private readonly partidosRepository: PartidosRepository,
+    private readonly suspensionesService: SuspensionesService,
+  ) {}
 
   /** Devuelve la planilla del partido. Si no existe, responde 404. */
   async obtenerPlanilla(id: string): Promise<PlanillaPartido> {
@@ -99,6 +105,7 @@ export class ResultadosService {
         [partido.equipoLocal.id, partido.equipoVisitante.id],
       );
       const ladoDe = this.validarJugadores(partido, plantel, jugadores);
+      await this.validarSuspendidos(partido, plantel, jugadores);
       eventosAGuardar = this.validarEventos(eventos, ladoDe);
       marcador = calcularMarcador(
         eventosAGuardar.map((evento) => ({
@@ -194,6 +201,31 @@ export class ResultadosService {
     return ladoDe;
   }
 
+  /** Rechaza la planilla si anota a un jugador que cumple una suspensión en este partido. */
+  private async validarSuspendidos(
+    partido: PartidoConPlanilla,
+    plantel: JugadorDelPlantel[],
+    jugadores: string[],
+  ): Promise<void> {
+    const suspendidos = await this.suspensionesService.suspendidosEn(
+      partido.fechaFixture.torneo.id,
+      partido.id,
+    );
+    const anotados = new Set(jugadores);
+    const nombres = plantel
+      .filter(
+        (j) =>
+          suspendidos.has(j.inscripcionJugadorId) &&
+          anotados.has(j.inscripcionJugadorId),
+      )
+      .map((j) => `${j.jugador.apellidos}, ${j.jugador.nombres} (${j.dorsal})`);
+    if (nombres.length > 0) {
+      throw new ConflictException(
+        `No pueden jugar este partido porque cumplen una suspensión: ${nombres.join('; ')}.`,
+      );
+    }
+  }
+
   /** Verifica cada evento contra los jugadores que participaron. */
   private validarEventos(
     eventos: EventoDto[],
@@ -263,10 +295,14 @@ export class ResultadosService {
   private async armarPlanilla(
     partido: PartidoConPlanilla,
   ): Promise<PlanillaPartido> {
-    const plantel = await this.partidosRepository.obtenerPlanteles(
-      partido.fechaFixture.torneo.id,
-      [partido.equipoLocal.id, partido.equipoVisitante.id],
-    );
+    const torneoId = partido.fechaFixture.torneo.id;
+    const [plantel, suspendidos] = await Promise.all([
+      this.partidosRepository.obtenerPlanteles(torneoId, [
+        partido.equipoLocal.id,
+        partido.equipoVisitante.id,
+      ]),
+      this.suspensionesService.suspendidosEn(torneoId, partido.id),
+    ]);
     const jugaron = new Set(
       partido.partidoJugadores.map((pj) => pj.inscripcionJugadorId),
     );
@@ -285,6 +321,7 @@ export class ResultadosService {
           dorsal: j.dorsal,
           capitan: j.capitan,
           jugo: jugaron.has(j.inscripcionJugadorId),
+          suspendido: suspendidos.has(j.inscripcionJugadorId),
         })),
     });
 

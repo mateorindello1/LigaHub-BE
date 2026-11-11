@@ -8,7 +8,28 @@ import { AppModule } from './../src/app.module.js';
 /** Jugador del plantel en la planilla (lo que usa el test). */
 interface JugadorPlanilla {
   inscripcionJugadorId: string;
+  suspendido: boolean;
 }
+
+/** Partido del fixture (lo que usa el test). */
+interface PartidoFixture {
+  id: string;
+  local: { id: number };
+  visitante: { id: number };
+}
+
+/** Sanción del listado de suspensiones (lo que usa el test). */
+interface Sancion {
+  inscripcionJugadorId: string;
+  motivo: string;
+  numeroFecha: number;
+  partidos: { partidoId: string; cumplida: boolean }[];
+  cumplida: boolean;
+}
+
+/** Inscripciones de los jugadores del plantel que pueden jugar (no cumplen una suspensión). */
+const disponibles = (plantel: JugadorPlanilla[]): string[] =>
+  plantel.filter((j) => !j.suspendido).map((j) => j.inscripcionJugadorId);
 
 /** Línea de la tabla de posiciones (lo que usa el test). */
 interface FilaPosiciones {
@@ -19,7 +40,8 @@ interface FilaPosiciones {
 /**
  * Test de integración del caso de uso "cargar el resultado de un partido" (AD-4): la API completa
  * contra la base del .env, con el seed cargado. Carga resultados en el primer partido de la fecha 4
- * de Apertura (programado y con fecha pasada) y al final lo deja programado, como estaba.
+ * de Apertura (programado y con fecha pasada) y, para las suspensiones, intenta cargar el partido
+ * de su equipo local en la fecha 5. Al final los deja programados, como estaban.
  *
  * Usa 3 logins (administrador, asistente y jugador).
  */
@@ -85,12 +107,9 @@ describe('Carga del resultado de un partido (e2e)', () => {
     };
 
     const planilla = await request(servidor()).get(`/partidos/${partidoId}`);
-    const local: string[] = planilla.body.local.plantel.map(
-      (j: JugadorPlanilla) => j.inscripcionJugadorId,
-    );
-    const visitante: string[] = planilla.body.visitante.plantel.map(
-      (j: JugadorPlanilla) => j.inscripcionJugadorId,
-    );
+    // Sin los suspendidos: la API no deja anotarlos.
+    const local = disponibles(planilla.body.local.plantel);
+    const visitante = disponibles(planilla.body.visitante.plantel);
     const equipoLocalId: number = planilla.body.local.id;
     const jugadosAntes = await jugadosDelLocal(equipoLocalId);
 
@@ -186,4 +205,109 @@ describe('Carga del resultado de un partido (e2e)', () => {
         .set(conToken('administrador'));
     }
   }, 60_000);
+  it('una expulsión suspende al jugador en el partido siguiente de su equipo', async () => {
+    // Arrange: el primer partido de la fecha 4 y el partido de su equipo local en la fecha 5.
+    const torneos = await request(servidor()).get('/torneos');
+    const apertura = torneos.body.find(
+      (t: { estadoTorneo: number }) => t.estadoTorneo === 2,
+    );
+    const fixture = await request(servidor()).get(
+      `/torneos/${apertura.id}/fixture`,
+    );
+    const partidoId: string = fixture.body[3].partidos[0].id;
+    const planilla = await request(servidor()).get(`/partidos/${partidoId}`);
+    const equipoId: number = planilla.body.local.id;
+    const siguiente: PartidoFixture = fixture.body[4].partidos.find(
+      (p: PartidoFixture) =>
+        p.local.id === equipoId || p.visitante.id === equipoId,
+    );
+    const local = disponibles(planilla.body.local.plantel);
+    const visitante = disponibles(planilla.body.visitante.plantel);
+    const expulsado = local[0];
+
+    try {
+      // Act: en la fecha 4 expulsan a un jugador del local.
+      const conExpulsion = await request(servidor())
+        .put(`/partidos/${partidoId}/resultado`)
+        .set(conToken('asistente'))
+        .send({
+          estadoPartido: 2,
+          jugadores: [...local, ...visitante],
+          eventos: [
+            { tipoEvento: 4, minuto: 60, inscripcionJugadorId: expulsado },
+          ],
+        });
+      const suspensiones = await request(servidor()).get(
+        `/torneos/${apertura.id}/suspensiones`,
+      );
+      const planillaSiguiente = await request(servidor()).get(
+        `/partidos/${siguiente.id}`,
+      );
+      const plantelSiguiente: JugadorPlanilla[] = [
+        ...planillaSiguiente.body.local.plantel,
+        ...planillaSiguiente.body.visitante.plantel,
+      ];
+      const conSuspendido = await request(servidor())
+        .put(`/partidos/${siguiente.id}/resultado`)
+        .set(conToken('asistente'))
+        .send({
+          estadoPartido: 2,
+          jugadores: plantelSiguiente.map((j) => j.inscripcionJugadorId),
+        });
+
+      // Assert
+      expect(conExpulsion.status).toBe(200);
+      const sancion = (suspensiones.body.sanciones as Sancion[]).find(
+        (s) => s.inscripcionJugadorId === expulsado && s.numeroFecha === 4,
+      );
+      expect(sancion).toMatchObject({
+        motivo: 'Expulsion',
+        partidos: [{ partidoId: siguiente.id, cumplida: false }],
+        cumplida: false,
+      });
+      expect(
+        plantelSiguiente.find((j) => j.inscripcionJugadorId === expulsado)
+          ?.suspendido,
+      ).toBe(true);
+      expect(conSuspendido.status).toBe(409);
+      expect(conSuspendido.body.mensaje).toContain('suspensión');
+    } finally {
+      // Deja los dos partidos programados (si ya lo están, responde 409).
+      for (const id of [siguiente.id, partidoId]) {
+        await request(servidor())
+          .delete(`/partidos/${id}/resultado`)
+          .set(conToken('administrador'));
+      }
+    }
+  }, 60_000);
+
+  it('los goleadores y las suspensiones se consultan sin sesión; 404 si el torneo no existe', async () => {
+    // Arrange
+    const torneos = await request(servidor()).get('/torneos');
+    const apertura = torneos.body.find(
+      (t: { estadoTorneo: number }) => t.estadoTorneo === 2,
+    );
+
+    // Act
+    const goleadores = await request(servidor()).get(
+      `/torneos/${apertura.id}/goleadores`,
+    );
+    const suspensiones = await request(servidor()).get(
+      `/torneos/${apertura.id}/suspensiones`,
+    );
+    const inexistente = await request(servidor()).get(
+      '/torneos/999999/goleadores',
+    );
+
+    // Assert: ordenados de más a menos goles, todos con al menos uno.
+    expect(goleadores.status).toBe(200);
+    const goles = (goleadores.body as { goles: number }[]).map((f) => f.goles);
+    expect(goles.length).toBeGreaterThan(0);
+    expect(goles).toEqual([...goles].sort((a, b) => b - a));
+    expect(goles.every((g) => g > 0)).toBe(true);
+    expect(suspensiones.status).toBe(200);
+    expect(suspensiones.body).toHaveProperty('sanciones');
+    expect(suspensiones.body).toHaveProperty('tarjetas');
+    expect(inexistente.status).toBe(404);
+  });
 });
