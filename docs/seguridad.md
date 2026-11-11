@@ -108,6 +108,18 @@ Si el frontend y la API se publican en dominios distintos (por ejemplo, `*.azure
 
 La solución es que el navegador vea los dos en el mismo sitio: un dominio propio con subdominios (por ejemplo, `app.` y `api.`), o que el hosting del frontend reenvíe `/api` a la API (Azure Static Web Apps lo permite con un backend vinculado). Se decide en AD-6.
 
+## Archivos subidos (fotos de perfil)
+
+| Medida | Para qué |
+|:--|:--|
+| Límite de 2 MB en multer (413) | Que nadie llene la memoria de la API con un archivo enorme: el pedido se corta apenas supera el límite |
+| Se valida el contenido real con `sharp`, no la extensión ni el `Content-Type` | Ambos los decide el cliente; un ejecutable renombrado a `.png` falla al leerlo como imagen |
+| La imagen se vuelve a generar (256 × 256, WebP) | Descarta los metadatos EXIF (pueden traer la ubicación GPS) y cualquier contenido escondido en el archivo |
+| Nombre aleatorio (UUID) | No se deduce de quién es ni se adivina el de otro usuario |
+| Contenedor privado y acceso solo por la API | La foto la ven el propio usuario y el Administrador (403 para los demás, antes que el 404) |
+| Cadena de conexión en `.env` | La de una cuenta de Azure es secreta, como la de la base. La de Azurite es pública (cuenta de prueba) |
+| Foto desde una dirección de internet: protección contra SSRF | La API no se conecta a redes privadas, locales ni reservadas (validado al conectar, también en las redirecciones), solo a los puertos 80 y 443, con tiempo y tamaño máximos y 5 pedidos por minuto. Detalle en el [plan](plan-de-desarrollo.md#ampliación-foto-desde-una-dirección-de-internet-ssrf) |
+
 ## Pendientes a futuro
 
 - **Documentación de la inscripción del jugador** (certificado médico, deslinde de responsabilidad y otros): requiere ampliar el modelo (por ejemplo, una entidad de documentos asociada a `InscripcionJugador`) y definir dónde se guardan los archivos (almacenamiento de blobs, no la base). Hay que validar tipo y tamaño de los archivos subidos y que solo el propio jugador y los administradores puedan verlos.

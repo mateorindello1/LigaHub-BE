@@ -8,6 +8,7 @@ import { Rol } from '../../common/seguridad/rol.enum.js';
 import { ContraseniasService } from './contrasenias.service.js';
 import { CambiarContraseniaDto } from './dto/cambiar-contrasenia.dto.js';
 import { CrearUsuarioDto } from './dto/crear-usuario.dto.js';
+import { FotosPerfilService } from './fotos-perfil.service.js';
 import { ModificarUsuarioDto } from './dto/modificar-usuario.dto.js';
 import type { DatosUsuario, UsuarioConRoles } from './usuario.js';
 import { UsuariosRepository } from './usuarios.repository.js';
@@ -28,6 +29,7 @@ export class UsuariosService {
   constructor(
     private readonly usuariosRepository: UsuariosRepository,
     private readonly contrasenias: ContraseniasService,
+    private readonly fotosPerfil: FotosPerfilService,
   ) {}
 
   /** Devuelve todos los usuarios con sus roles. */
@@ -104,15 +106,16 @@ export class UsuariosService {
   }
 
   /**
-   * Borra un usuario.
+   * Borra un usuario y su foto de perfil.
    * @param idSesion id del usuario que hace el pedido (no puede borrarse a sí mismo).
    */
   async borrar(id: number, idSesion: number): Promise<void> {
     if (id === idSesion) {
       throw new ConflictException('No podés borrar tu propio usuario.');
     }
-    await this.obtenerPorId(id);
+    const usuario = await this.obtenerPorId(id);
     await this.usuariosRepository.borrar(id);
+    await this.fotosPerfil.borrarArchivo(usuario.fotoPerfil);
   }
 
   /** Reglas comunes al alta y la modificación. */

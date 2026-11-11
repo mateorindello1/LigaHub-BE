@@ -1254,6 +1254,7 @@ Subetapas con la misma numeración en los planes del backend y del frontend. Req
 | AD-4 | Caso de uso: cargar el resultado de un partido | Sí | Sí | Hecha |
 | AD-5 | Tests que faltan | Sí | Sí | Hecha |
 | AD-6 | Ambientes y deploy | Sí | Sí | Pendiente |
+| Extra | Fotos de perfil en Azure Blob Storage (Azurite en desarrollo): archivo, pegar o dirección de internet | Sí | Sí | Hecha |
 
 ### AD-1 — Base de datos en la nube
 
@@ -1816,6 +1817,127 @@ Detalles de la configuración:
 - **Integración:** pasan los 22 contra Azure (`pnpm test:cov:e2e`).
 - **Workflow:** simulado en una copia limpia, como se describe arriba.
 - **Calidad:** lint y compilación sin errores.
+
+### Extra — Fotos de perfil en Azure Blob Storage
+
+**Estado:** Hecha (2026-11-11)
+
+No es un requisito de la cátedra. Cada usuario sube, cambia o quita su foto de perfil; la ven él y el Administrador. Los archivos van a **Azure Blob Storage** y la base guarda solo el nombre del archivo. En desarrollo se usa **Azurite**, el emulador oficial: el código es el mismo y solo cambia la cadena de conexión del `.env`.
+
+#### Endpoints
+
+| Método y ruta | Acceso | Qué hace |
+|:--|:--|:--|
+| `PUT /usuarios/yo/foto` | Cualquier usuario con sesión | Sube o reemplaza su foto. Formulario multipart, campo `foto`, JPG, PNG o WebP de hasta 2 MB. Devuelve el usuario actualizado |
+| `DELETE /usuarios/yo/foto` | Cualquier usuario con sesión | Quita su foto. Devuelve el usuario actualizado |
+| `GET /usuarios/:id/foto` | El propio usuario o el Administrador | Devuelve la foto (`image/webp`). 403 para otro usuario, antes que el 404 |
+
+#### Pasos
+
+```powershell
+pnpm add @azure/storage-blob sharp
+pnpm add -D azurite
+
+# Azurite (emulador de Blob Storage) en el puerto 10000, con los datos en .azurite/
+pnpm storage:local
+```
+
+- **`sharp`** viene con su binario precompilado y no necesita aprobar scripts. Azurite trae `protobufjs`, que pide correr un script de instalación que no hace falta: quedó en `false` en `pnpm-workspace.yaml`.
+- **Migración `20261111120000_usuario_foto_perfil`:** renombra `fotoPerfilURL` a `fotoPerfil` con `sp_rename`. Está escrita a mano porque Prisma habría generado `DROP` + `ADD COLUMN` y se perderían los datos. Se aplicó con `pnpm db:deploy`.
+- **`.env`:** `AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true` (Azurite) y, opcional, `AZURE_STORAGE_CONTENEDOR_FOTOS` (por defecto `fotos-perfil`).
+- **Para usar la cuenta de Azure:** cambiar la cadena de conexión por la del portal (cuenta de almacenamiento → Claves de acceso). Es secreta, como la de la base. Conviene deshabilitar el acceso anónimo de blobs en la cuenta: el contenedor es privado.
+
+#### Archivos
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/almacenamiento/almacenamiento.service.ts` | Nuevo: subir, descargar y borrar archivos con `@azure/storage-blob`. Crea el contenedor (privado) la primera vez que se usa; los errores del almacenamiento responden 503 |
+| `src/modules/almacenamiento/almacenamiento.module.ts` | Nuevo: el servicio y su configuración |
+| `src/modules/usuarios/fotos-perfil.service.ts` | Nuevo: validar y reprocesar la imagen con `sharp`, nombre aleatorio, reemplazo (borra la anterior), permisos para verla |
+| `src/modules/usuarios/fotos-perfil.controller.ts` | Nuevo: los 3 endpoints, con `FileInterceptor` (multer) y límite de 2 MB |
+| `src/modules/usuarios/usuarios.service.ts` | Al borrar un usuario, borra también su foto |
+| `src/modules/usuarios/usuarios.repository.ts` | `cambiarFotoPerfil`; `fotoPerfil` en los campos públicos |
+| `src/modules/usuarios/usuario.ts` | `fotoPerfilURL` → `fotoPerfil` |
+| `src/config/configuracion.ts` | `AZURE_STORAGE_CONNECTION_STRING` (obligatoria) y `AZURE_STORAGE_CONTENEDOR_FOTOS` (validado con las reglas de nombres de Azure) |
+| `src/common/errores/excepciones.filter.ts` | 413 ("El archivo supera el tamaño máximo permitido (2 MB).") y los errores de multer en español; nombres para 413 y 503 |
+| `prisma/schema.prisma` y la migración | Columna `fotoPerfil` |
+| `prisma/seed.ts` | Borra del almacenamiento las fotos de los usuarios antes de borrarlos |
+| `package.json` | Script `storage:local` |
+| `.gitignore` | `.azurite/` |
+| `.env.example` | Variables del almacenamiento |
+
+#### Conceptos
+
+- **Blob Storage:** almacenamiento de archivos de Azure. Una *cuenta* tiene *contenedores* (como carpetas de primer nivel) y cada contenedor tiene *blobs* (los archivos). Es el lugar para archivos; la base guarda solo una referencia. Guardar imágenes en la base (`varbinary`) la agranda y encarece las copias de seguridad.
+- **Azurite:** emulador local de Blob Storage. Implementa la misma API, así que el SDK no nota la diferencia. `UseDevelopmentStorage=true` es una cadena de conexión especial que apunta a Azurite con su cuenta de prueba (`devstoreaccount1`), que es pública. En .NET es lo mismo con `Azure.Storage.Blobs`.
+- **Se guarda el nombre del archivo, no la URL:** en Azurite la dirección es `http://127.0.0.1:10000/devstoreaccount1/...` y en Azure, `https://<cuenta>.blob.core.windows.net/...`. Con el nombre solo, cambiar de ambiente no rompe las fotos.
+- **Contenedor privado y la API como intermediaria:** nadie puede leer los blobs sin la clave de la cuenta. La API descarga la foto y la devuelve después de controlar el permiso, igual que cualquier otro dato. Por eso el frontend la pide con `fetch` y el token, no con un `<img src>`.
+- **Reprocesar la imagen con `sharp`:** no se guarda el archivo subido. Se lee con `sharp`, se rota según la orientación de la cámara, se recorta al centro a 256 × 256 y se guarda en WebP.
+  - **Valida el contenido real:** un texto renombrado a `.png` falla al leerlo, aunque el navegador diga `image/png`.
+  - **Borra los metadatos EXIF:** pueden traer la ubicación GPS de donde se sacó la foto.
+  - **Descarta cualquier contenido escondido** dentro del archivo.
+  - **Todas las fotos pesan pocos KB.** En .NET sería ImageSharp.
+- **Nombre aleatorio (UUID):** no se puede deducir de quién es una foto ni adivinar el nombre de la de otro.
+- **`FileInterceptor` (multer):** recibe el formulario multipart y deja el archivo en memoria. El límite de 2 MB corta el pedido apenas lo supera, sin leerlo entero. Es el `IFormFile` de ASP.NET Core con `RequestSizeLimit`.
+- **`StreamableFile`:** respuesta binaria con su tipo (`image/webp`). Es el `return File(bytes, "image/webp")` de un controller de .NET.
+- **Orden de las operaciones al reemplazar:** subir el archivo nuevo → guardar en la base → borrar el anterior. Si la base falla, se borra el nuevo; si falla el borrado del anterior, solo queda un archivo huérfano (se registra en el log), pero la base queda bien.
+- **El contenedor se crea al usarlo, no al arrancar:** si Azurite está apagado, la API arranca igual y solo las fotos responden 503 ("El almacenamiento de archivos no está disponible.").
+
+#### Cómo se probó
+
+- **Unitarios** (`fotos-perfil.service.spec.ts`, con `sharp` de verdad y almacenamiento y base en memoria; pasan los 134 del backend):
+  - Guarda la foto en WebP de 256 × 256 con nombre aleatorio.
+  - Descarta el EXIF de un JPG que lo tenía.
+  - Al reemplazarla, borra la anterior.
+  - Rechaza un texto, un archivo vacío y un GIF.
+  - Quitarla la borra de la base y del almacenamiento.
+  - La ven el propio usuario y el Administrador; otro usuario recibe 403; sin foto, 404.
+- **Integración** (`test/fotos-perfil.e2e-spec.ts`, contra Azure SQL y Azurite, 4 tests):
+  - Subida de un PNG de 800 × 600 que vuelve como WebP de 256 × 256.
+  - La ven el usuario y el Administrador; el Asistente recibe 403.
+  - Un texto responde 400; 3 MB responden 413 con el mensaje en español; sin archivo, 400.
+  - Quitarla y después 404; sin sesión, 401.
+
+  En la suite completa pasaron 29 de 30. Falló el mismo de S-7, por el usuario `jugador2@ligahub.test` que no es del seed.
+
+#### Ampliación: foto desde una dirección de internet (SSRF)
+
+`PUT /usuarios/yo/foto/url` con `{ "url": "https://..." }` usa como foto una imagen de internet. La descarga el backend: desde el navegador no se puede, porque CORS impide leer imágenes de otros sitios. Después sigue el mismo camino que un archivo subido (validación y reprocesado con `sharp`).
+
+**El riesgo: SSRF (*Server-Side Request Forgery*).** Si la API descargara cualquier dirección, un usuario podría usarla para llegar a lo que solo ella alcanza: la propia máquina (`127.0.0.1`, Azurite en el puerto 10000), la red interna o el servicio de credenciales de Azure (`169.254.169.254`), que entrega tokens de la identidad administrada. `DescargadorImagenes` lo impide así:
+
+| Medida | Cómo |
+|:--|:--|
+| Solo `http` y `https`, puertos 80 y 443, sin usuario ni contraseña en la dirección | Se revisa la URL antes de conectar |
+| Sin redes privadas, locales ni reservadas | `BlockList` de Node con las redes bloqueadas (IPv4 e IPv6, incluida una IPv4 escrita como IPv6, `::ffff:127.0.0.1`) |
+| La IP se valida **al conectar** | Se reemplaza el `lookup` del DNS que usa el socket: si el nombre resuelve a una IP bloqueada, la conexión no se abre. Validar antes de conectar no alcanza, porque el nombre puede resolver a una IP pública al validar y a una privada al conectar (*DNS rebinding*) |
+| Una IP escrita directamente también se valida | No pasa por el DNS, así que se revisa con la URL |
+| Cada redirección se vuelve a validar, como máximo 3 | Un sitio público podría redirigir a `169.254.169.254` |
+| Tiempo máximo de 10 segundos para toda la descarga | Además del de inactividad: un servidor que manda un byte por segundo no la deja colgada |
+| Se corta apenas supera 2 MB, y el tipo tiene que ser `image/*` | No se descarga entero para después rechazarlo |
+| 5 pedidos por minuto por IP (`ThrottlerGuard`, el mismo del login) | Que no se use la API para descargar en cantidad |
+| Mensajes genéricos | No dicen si la dirección interna existe o qué respondió |
+
+Se usa `node:http`/`node:https` y no `fetch`, porque permiten controlar el `lookup` de cada conexión. En .NET sería un `HttpClient` con un `SocketsHttpHandler.ConnectCallback` que valida la IP.
+
+| Archivo | Cambio |
+|:--|:--|
+| `src/modules/usuarios/descargador-imagenes.ts` | Nuevo: la descarga con las protecciones; `esDireccionPublica` |
+| `src/modules/usuarios/descargador-imagenes.spec.ts` | Nuevo: redes bloqueadas y descarga contra un servidor HTTP local |
+| `src/modules/usuarios/dto/foto-desde-url.dto.ts` | Nuevo: `url` con `@IsUrl` (http o https) y hasta 2000 caracteres |
+| `src/modules/usuarios/fotos-perfil.constantes.ts` | Nuevo: tamaño, lado y tipo de la foto (los usan el servicio y el descargador sin importarse entre sí) |
+| `src/modules/usuarios/fotos-perfil.service.ts`, `fotos-perfil.controller.ts`, `usuarios.module.ts` | `subirDesdeUrl` y el endpoint con `ThrottlerGuard` |
+
+**Cómo se probó:**
+- **Unitarios** (`descargador-imagenes.spec.ts`; pasan los 162 del backend):
+  - Qué IP son públicas y cuáles no (14 casos).
+  - Se rechazan otro protocolo, otro puerto, credenciales en la URL, `127.0.0.1`, `[::1]`, `169.254.169.254`, `192.168.0.1`, `localhost` (bloqueado al resolverlo) y una dirección mal formada.
+  - Contra un servidor HTTP local, con una subclase que habilita solo esa IP y su puerto:
+    - descarga una imagen;
+    - sigue una redirección, pero rechaza una que va a `169.254.169.254`;
+    - rechaza una página HTML, un 404 y una imagen de 3 MB.
+- **Integración** (`fotos-perfil.e2e-spec.ts`, ahora 5 tests): una dirección hacia Azurite (`127.0.0.1:10000`) responde 400 "no está permitida"; una dirección inválida, 400 en el campo `url`.
+- **A mano:** con la dirección del logo de Google, la API la descargó, la recortó y la barra la mostró.
 
 ### AD-6 — Ambientes y deploy
 

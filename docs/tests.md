@@ -23,6 +23,7 @@ Para los de integración:
 - **Configuración:** hace falta el `.env` completo (`DATABASE_URL`, `JWT_SECRET` y `SEED_CONTRASENIA`).
 - **Datos:** la base tiene que tener los datos del seed (`pnpm db:seed`).
 - **Red:** la IP de la máquina tiene que estar habilitada en el firewall de Azure SQL.
+- **Almacenamiento:** Azurite levantado (`pnpm storage:local`), para los tests de fotos de perfil.
 
 **Datos de prueba:** los tests de integración usan los usuarios del seed y modifican algunos datos por un momento (por ejemplo, cargan el resultado de un partido programado). Cada test deja todo como estaba, aunque falle a mitad de camino, y antes de empezar borra lo que haya quedado de una corrida anterior. Corren de a un archivo por vez (`fileParallelism: false`), porque comparten la base.
 
@@ -30,7 +31,7 @@ Para los de integración:
 
 ## Qué cubren
 
-### Unitarios (122 tests en 17 archivos)
+### Unitarios (162 tests en 19 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
@@ -47,17 +48,20 @@ Para los de integración:
 | `canchas/canchas.service.spec.ts` | Nombre de predio único, número de cancha único por predio, borrados con datos asociados |
 | `usuarios/usuarios.service.spec.ts` | Gestión de usuarios: email único, rol Jugador y jugador asociado, el administrador no se quita su rol ni se borra |
 | `usuarios/contrasenias.service.spec.ts` | Hash Argon2id y verificación |
+| `usuarios/descargador-imagenes.spec.ts` | Protección contra SSRF: IP públicas y bloqueadas; rechazo de otros protocolos y puertos, credenciales en la URL, la propia máquina, la red interna y las credenciales de Azure. Descarga contra un servidor local: imagen, redirección (y redirección a una IP bloqueada), página HTML, 404 e imagen de más de 2 MB |
+| `usuarios/fotos-perfil.service.spec.ts` | Fotos de perfil con `sharp` real: WebP de 256 × 256 con nombre aleatorio, sin EXIF, reemplazo que borra la anterior, rechazo de texto, archivo vacío y GIF, permisos para verla |
 | `auth/auth.service.spec.ts` | Login: token de acceso con el id, el email y los roles, que vence a los 15 minutos, y token de refresco de 7 días guardado como hash. Refresco con rotación; reutilizar un token usado revoca la sesión; token faltante, inexistente o vencido; cierre de sesión. Usuario de la sesión sin el hash y 401 si ya no existe |
 | `auth/roles.guard.spec.ts` | Guard de roles: público, sin roles, con y sin el rol requerido |
 | `config/configuracion.spec.ts` | Validación del `.env` al arrancar, valores por defecto de la sesión y conversión de duraciones |
 | `app.controller.spec.ts` | Endpoint raíz (el que genera Nest al crear el proyecto) |
 
-### Integración (26 tests en 7 archivos)
+### Integración (31 tests en 8 archivos)
 
 | Archivo | Qué prueba |
 |:--|:--|
 | `auth.e2e-spec.ts` | Login correcto (sin el hash en la respuesta), incorrecto o con email inexistente (401 con el mismo mensaje), email mal formado (400), `GET /auth/yo` con token válido, sin token o adulterado, y límite de intentos (429 desde el sexto). Cookie del token de refresco (`HttpOnly`, `Secure`, `SameSite`, `Path=/auth`); refresco con rotación y reutilización que revoca la sesión; refresco sin cookie; cierre de sesión |
 | `permisos.e2e-spec.ts` | Endpoints públicos sin sesión; 401 sin token; 403 con un rol que no alcanza; el Administrador crea y borra un torneo; `GET /auth/yo` con cualquier rol |
+| `fotos-perfil.e2e-spec.ts` | Fotos de perfil contra Azurite: subida y conversión a WebP de 256 × 256, permisos (propia, Administrador, 403 para otro), 400 por un archivo que no es imagen o sin archivo, 413 por más de 2 MB, quitarla y 401 sin sesión. Desde una dirección: la propia máquina (Azurite) responde 400 "no está permitida" y una dirección inválida, 400 |
 | `usuarios.e2e-spec.ts` | Ciclo de un usuario: alta, cambio de rol que rige con el mismo token, cambio de contraseña y baja |
 | `jugadores.e2e-spec.ts` | Permiso por pertenencia del Jugador; alta, inscripción con capitanía y reglas del plantel |
 | `predios.e2e-spec.ts` | Predio y cancha; programación sin superponer canchas ni equipos |
@@ -79,6 +83,15 @@ El reporte de cobertura queda como artefacto de cada ejecución. El resultado de
 Los tests de integración no corren en GitHub: la base de Azure solo acepta conexiones de las IP habilitadas en su firewall. Se corren en local.
 
 ### Última ejecución local (2026-11-10)
+
+**Después de las fotos de perfil** (2026-11-11), sin cobertura. La suite de integración completa es anterior a la foto desde una dirección; `fotos-perfil.e2e-spec.ts` se corrió después con sus 5 tests y pasaron:
+
+```
+pnpm test        →  Test Files  19 passed (19)  ·  Tests  162 passed (162)
+pnpm test:e2e    →  Test Files  1 failed | 7 passed (8)  ·  Tests  1 failed | 29 passed (30)
+```
+
+El de integración que falla es "solo el Administrador lista usuarios y jugadores": espera un solo jugador con usuario, y en la base había un usuario creado a mano (`jugador2@ligahub.test`) que no es del seed. Con la base como el seed, pasa.
 
 **Unitarios** (`pnpm test:cov`, después de S-7):
 

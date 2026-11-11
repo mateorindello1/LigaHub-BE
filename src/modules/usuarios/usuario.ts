@@ -11,7 +11,8 @@ export interface JugadorDeUsuario {
 export interface UsuarioConRoles {
   id: number;
   email: string;
-  fotoPerfilURL: string | null;
+  /** Nombre del archivo de la foto en el almacenamiento, o null. La foto se pide a la API. */
+  fotoPerfil: string | null;
   /** Jugador asociado (solo para usuarios con rol Jugador). */
   jugadorId: number | null;
   jugador: JugadorDeUsuario | null;

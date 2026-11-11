@@ -5,6 +5,7 @@ import { aMilisegundos, leerConfiguracion } from './configuracion.js';
 const VALIDAS = {
   DATABASE_URL: 'sqlserver://localhost:1433;database=Prueba',
   JWT_SECRET: 'x'.repeat(32),
+  AZURE_STORAGE_CONNECTION_STRING: 'UseDevelopmentStorage=true',
 };
 
 describe('leerConfiguracion', () => {
@@ -21,6 +22,10 @@ describe('leerConfiguracion', () => {
     expect(configuracion.sesion).toEqual({
       duracionRefresco: 7 * 86_400_000,
       sameSite: 'strict',
+    });
+    expect(configuracion.almacenamiento).toEqual({
+      cadenaConexion: 'UseDevelopmentStorage=true',
+      contenedorFotos: 'fotos-perfil',
     });
   });
 
@@ -67,6 +72,16 @@ describe('leerConfiguracion', () => {
       'REFRESCO_DURACION inválida',
       { REFRESCO_DURACION: '1 semana' },
       'REFRESCO_DURACION tiene un formato inválido',
+    ],
+    [
+      'falta AZURE_STORAGE_CONNECTION_STRING',
+      { AZURE_STORAGE_CONNECTION_STRING: ' ' },
+      'Falta AZURE_STORAGE_CONNECTION_STRING',
+    ],
+    [
+      'AZURE_STORAGE_CONTENEDOR_FOTOS inválido',
+      { AZURE_STORAGE_CONTENEDOR_FOTOS: 'Fotos_Perfil' },
+      'AZURE_STORAGE_CONTENEDOR_FOTOS tiene un nombre inválido',
     ],
     [
       'COOKIE_SAMESITE inválido',

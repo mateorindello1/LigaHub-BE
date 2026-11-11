@@ -12,7 +12,7 @@ import {
 const CAMPOS_PUBLICOS = {
   id: true,
   email: true,
-  fotoPerfilURL: true,
+  fotoPerfil: true,
   jugadorId: true,
   jugador: { select: { id: true, nombres: true, apellidos: true } },
   roles: { select: { rol: true }, orderBy: { rol: 'asc' } },
@@ -150,6 +150,19 @@ export class UsuariosRepository {
         data: { fechaHoraRevocacion: new Date() },
       }),
     ]);
+  }
+
+  /** Cambia la foto del usuario (nombre del archivo, o null para quitarla). */
+  async cambiarFotoPerfil(
+    id: number,
+    fotoPerfil: string | null,
+  ): Promise<UsuarioConRoles> {
+    const usuario = await this.prisma.usuario.update({
+      where: { id },
+      data: { fotoPerfil },
+      select: CAMPOS_PUBLICOS,
+    });
+    return conRoles(usuario);
   }
 
   /** Borra el usuario, sus roles y sus tokens de refresco (las claves foráneas no borran en cascada). */

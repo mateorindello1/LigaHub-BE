@@ -28,6 +28,8 @@ import { TipoEvento } from '../src/modules/partidos/tipo-evento.enum.js';
 import { EstadoTorneo } from '../src/modules/torneos/estado-torneo.enum.js';
 import { Rol } from '../src/common/seguridad/rol.enum.js';
 import { ContraseniasService } from '../src/modules/usuarios/contrasenias.service.js';
+import { AlmacenamientoService } from '../src/modules/almacenamiento/almacenamiento.service.js';
+import { leerConfiguracion } from '../src/config/configuracion.js';
 
 // #region Datos fijos
 
@@ -264,6 +266,26 @@ async function main(): Promise<void> {
 
   try {
     // #region Limpieza (en orden inverso a las dependencias)
+    // Fotos de perfil: se borran del almacenamiento antes que los usuarios, para no dejar
+    // archivos huérfanos. Si el almacenamiento no responde, se sigue igual.
+    const conFoto = await prisma.usuario.findMany({
+      where: { fotoPerfil: { not: null } },
+      select: { fotoPerfil: true },
+    });
+    if (conFoto.length > 0) {
+      const { almacenamiento } = leerConfiguracion();
+      const archivos = new AlmacenamientoService(almacenamiento);
+      for (const { fotoPerfil } of conFoto) {
+        await archivos
+          .borrar(almacenamiento.contenedorFotos, fotoPerfil!)
+          .catch(() =>
+            console.warn(
+              `No se pudo borrar la foto ${fotoPerfil} del almacenamiento.`,
+            ),
+          );
+      }
+    }
+
     await prisma.evento.deleteMany();
     await prisma.partidoJugador.deleteMany();
     await prisma.partido.deleteMany();

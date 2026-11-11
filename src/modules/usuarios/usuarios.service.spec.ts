@@ -12,6 +12,7 @@ import {
   type UsuarioConCredenciales,
 } from './usuario.js';
 import type { UsuariosRepository } from './usuarios.repository.js';
+import type { FotosPerfilService } from './fotos-perfil.service.js';
 import { UsuariosService } from './usuarios.service.js';
 
 /** Repositorio falso en memoria: lo justo para probar las reglas del servicio. */
@@ -51,7 +52,7 @@ class RepositorioEnMemoria {
     const usuario: UsuarioConCredenciales = {
       id: this.proximoId++,
       email: normalizarEmail(datos.email),
-      fotoPerfilURL: null,
+      fotoPerfil: null,
       jugadorId: datos.jugadorId,
       jugador: null,
       roles: datos.roles,
@@ -88,6 +89,10 @@ describe('UsuariosService', () => {
     servicio = new UsuariosService(
       repositorio as unknown as UsuariosRepository,
       contrasenias,
+      // Las fotos tienen su propio test: acá solo hace falta que borrar no falle.
+      {
+        borrarArchivo: () => Promise.resolve(),
+      } as unknown as FotosPerfilService,
     );
     const admin = await servicio.crear({
       email: 'admin@ligahub.test',

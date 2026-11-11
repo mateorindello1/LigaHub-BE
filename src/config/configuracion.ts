@@ -13,6 +13,18 @@ export interface Configuracion {
     duracion: string;
   };
   sesion: ConfiguracionSesion;
+  almacenamiento: ConfiguracionAlmacenamiento;
+}
+
+/** Almacenamiento de archivos (Azure Blob Storage, o Azurite en desarrollo). */
+export interface ConfiguracionAlmacenamiento {
+  /**
+   * Cadena de conexión. "UseDevelopmentStorage=true" apunta a Azurite (el emulador local); la de
+   * una cuenta de Azure se copia del portal (Claves de acceso) y es secreta.
+   */
+  cadenaConexion: string;
+  /** Contenedor de las fotos de perfil. Se crea solo si no existe. */
+  contenedorFotos: string;
 }
 
 /** Valores de SameSite que acepta la cookie del token de refresco. */
@@ -104,6 +116,23 @@ export function leerConfiguracion(
     );
   }
 
+  const cadenaAlmacenamiento =
+    variables.AZURE_STORAGE_CONNECTION_STRING?.trim() ?? '';
+  if (!cadenaAlmacenamiento) {
+    errores.push(
+      'Falta AZURE_STORAGE_CONNECTION_STRING (almacenamiento de archivos). En desarrollo: UseDevelopmentStorage=true (Azurite).',
+    );
+  }
+
+  const contenedorFotos =
+    variables.AZURE_STORAGE_CONTENEDOR_FOTOS?.trim() || 'fotos-perfil';
+  // Regla de Azure: de 3 a 63 caracteres, minúsculas, números y guiones.
+  if (!/^[a-z0-9](?!.*--)[a-z0-9-]{1,61}[a-z0-9]$/.test(contenedorFotos)) {
+    errores.push(
+      `AZURE_STORAGE_CONTENEDOR_FOTOS tiene un nombre inválido ("${contenedorFotos}"): de 3 a 63 caracteres, minúsculas, números y guiones.`,
+    );
+  }
+
   if (errores.length > 0) {
     throw new Error(
       `Configuración inválida en .env:\n- ${errores.join('\n- ')}`,
@@ -114,5 +143,9 @@ export function leerConfiguracion(
     cadenaConexion,
     jwt: { secreto, duracion },
     sesion: { duracionRefresco: duracionRefrescoMs!, sameSite },
+    almacenamiento: {
+      cadenaConexion: cadenaAlmacenamiento,
+      contenedorFotos,
+    },
   };
 }

@@ -153,3 +153,6 @@ src/generated/
 
 # Cobertura de los tests de integración
 coverage-e2e/
+
+# Datos de Azurite (emulador local de Azure Blob Storage)
+.azurite/

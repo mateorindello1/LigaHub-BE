@@ -49,6 +49,12 @@ fnm use
 pnpm install
 ```
 
+Copiar `.env.example` como `.env` y completar los valores. Las fotos de perfil se guardan en Azure Blob Storage; en desarrollo, en **Azurite** (el emulador local), que se levanta con:
+
+```bash
+pnpm storage:local
+```
+
 ## Tests
 
 106 tests unitarios de las reglas de negocio y 22 de integración contra la API completa, con Vitest. Cómo correrlos, qué cubren y la evidencia de ejecución: [`docs/tests.md`](docs/tests.md). Los tests unitarios corren en GitHub Actions en cada push a `main`.
@@ -74,3 +80,4 @@ Con la API levantada en desarrollo, la documentación interactiva (Swagger UI) e
 | `pnpm db:deploy` | Aplica las migraciones pendientes, sin generar nuevas (producción) |
 | `pnpm db:seed` | **Borra todos los datos** y carga los datos de demostración |
 | `pnpm db:studio` | Abre Prisma Studio para ver y editar los datos |
+| `pnpm storage:local` | Levanta Azurite, el emulador de Azure Blob Storage (puerto 10000, datos en `.azurite/`) |

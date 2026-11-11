@@ -94,7 +94,7 @@ describe('AuthService', () => {
     usuario = {
       id: 1,
       email: 'admin@ligahub.test',
-      fotoPerfilURL: null,
+      fotoPerfil: null,
       jugador: null,
       jugadorId: null,
       roles: [Rol.Administrador],

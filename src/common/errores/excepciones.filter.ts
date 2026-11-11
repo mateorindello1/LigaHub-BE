@@ -17,8 +17,10 @@ const NOMBRES_ERROR: Record<number, string> = {
   [HttpStatus.FORBIDDEN]: 'Acceso denegado',
   [HttpStatus.NOT_FOUND]: 'No encontrado',
   [HttpStatus.CONFLICT]: 'Conflicto',
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'Archivo demasiado grande',
   [HttpStatus.TOO_MANY_REQUESTS]: 'Demasiados pedidos',
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'Error interno',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'Servicio no disponible',
 };
 
 /** Resultado de interpretar una excepción. */
@@ -91,6 +93,23 @@ export class ExcepcionesFilter implements ExceptionFilter {
         message.startsWith('Cannot ')
       ) {
         return { estado, mensaje: 'La ruta solicitada no existe.' };
+      }
+
+      // Archivos (multer): demasiado grande, o en un campo que no es el esperado.
+      if (estado === 413) {
+        return {
+          estado,
+          mensaje: 'El archivo supera el tamaño máximo permitido (2 MB).',
+        };
+      }
+      if (
+        estado === 400 &&
+        (message === 'Unexpected field' || message === 'Too many files')
+      ) {
+        return {
+          estado,
+          mensaje: 'Se esperaba un solo archivo, en el campo "foto".',
+        };
       }
 
       // JSON mal formado en el cuerpo: Nest convierte el SyntaxError del parser de Express
