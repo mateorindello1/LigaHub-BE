@@ -17,7 +17,7 @@ import type { ContenidoToken, PedidoAutenticado } from './contenido-token.js';
  *
  * Además de verificar el token, lee el usuario de la base en cada pedido: los roles que valen son
  * los actuales, no los que había al iniciar sesión. Si el administrador le quita un rol a alguien
- * o borra su usuario, rige desde el pedido siguiente, sin esperar a que venza el token (8 horas).
+ * o borra su usuario, rige desde el pedido siguiente, sin esperar a que venza el token (15 minutos).
  *
  * Es global (registrado como APP_GUARD en AuthModule): se aplica a todos los endpoints.
  */
